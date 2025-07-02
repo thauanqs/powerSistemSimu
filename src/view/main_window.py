@@ -1,10 +1,18 @@
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPushButton, QHBoxLayout
+from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtWidgets import (
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QPushButton,
+    QHBoxLayout,
+    QSizePolicy,
+)
 
 from controllers.simulator_controller import SimulatorController
 from view.board_view import BoardView
 from view.bus_table import BusTable
-from PySide6.QtWidgets import QSizePolicy
+
 
 from view.line_table import LineTable
 from view.text_field import TextField
@@ -14,43 +22,68 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         centralWidget = QWidget()
+        simulatorInstance = SimulatorController.instance()
         self.setWindowTitle("Power Systems Simulator - Board")
         # Layout creation
         top_row = QHBoxLayout()
         bottom_row = QHBoxLayout()
 
+        toolbar = self.menuBar()
+        toolbar.setNativeMenuBar(False)
+
+        project = toolbar.addMenu("Project")
+        projectNew = QAction("New", project)
+
+        projectNew.triggered.connect(self.new_project)
+        project.addAction(projectNew)
+
+        projectOpen = QAction("Open", project)
+        projectOpen.setShortcut(QKeySequence.StandardKey.Open)
+        projectOpen.triggered.connect(self.import_project_from_json)
+        project.addAction(projectOpen)
+
+        projectSave = QAction("Save", project)
+        projectSave.setShortcut(QKeySequence.StandardKey.Save)
+        projectSave.triggered.connect(self.save_project_to_json)
+        project.addAction(projectSave)
+
+        projectImportIeee = QAction("Open IEEE ", project)
+        projectImportIeee.setShortcut(QKeySequence("Ctrl+I"))
+        projectImportIeee.triggered.connect(self.import_project_from_ieee)
+        project.addAction(projectImportIeee)
+
+        view = toolbar.addMenu("View")
+        viewBars = QAction("Bars", view)
+        viewBars.triggered.connect(self.show_bus_window)
+        view.addAction(viewBars)
+
+        viewLine = QAction("Lines", view)
+        viewLine.triggered.connect(self.show_line_window)
+        view.addAction(viewLine)
+
+        show = toolbar.addMenu("Show")
+        showYMatrix = QAction("Y Matrix", show)
+
+        show.addAction(showYMatrix)
+
+        run = toolbar.addMenu("Run")
+        runLoadFlow = QAction("Load Flow", run)
+        runLoadFlow.setShortcut(QKeySequence("Ctrl+R"))
+        runLoadFlow.triggered.connect(SimulatorController.instance().runPowerFlow)
+        run.addAction(runLoadFlow)
+
         # Layout Alignment configuration
         top_row.setAlignment(Qt.AlignmentFlag.AlignLeft)
         bottom_row.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        importFileButton = QPushButton("Import")
-        importFileButton.setFixedSize(70, 30)
-
-        expoerFileButton = QPushButton("Export")
-        expoerFileButton.setFixedSize(70, 30)
-
-        importIeeeFileButton = QPushButton("Import IEEE")
-        importIeeeFileButton.setFixedSize(120, 30)
-
-        clearStateButton = QPushButton("Clear All")
-        clearStateButton.setFixedSize(70, 30)
-        clearStateButton.setIconSize(QSize(70, 30))
-
         addBusButton = QPushButton("Add Bus")
+        addBusButton.setShortcut(QKeySequence("Ctrl+B"))
+        addBusButton.setToolTip("Add a new bus to the network. Shortcut: Ctrl+B or Command+B")
         addBusButton.setFixedSize(70, 30)
         addBusButton.setIconSize(QSize(70, 30))
 
-        show_buses_button = QPushButton("Buses")
-        show_buses_button.setFixedSize(110, 30)
-
-        show_lines_button = QPushButton("Lines")
-        show_lines_button.setFixedSize(110, 30)
-
         show_y_bar_matrix_button = QPushButton("Print Network")
         show_y_bar_matrix_button.setFixedSize(110, 30)
-
-        runPowerFlowButton = QPushButton("Run Power Flow")
-        runPowerFlowButton.setFixedSize(110, 30)
 
         self.powerBaseField = TextField[int](
             type=int,
@@ -60,42 +93,27 @@ class MainWindow(QMainWindow):
             value=int(SimulatorController.instance().power_base_mva),
         )
 
-        # Create the board view.
-        board = BoardView()
+        self.board = BoardView()
 
         # Screen montage
         column = QVBoxLayout(centralWidget)
         column.addLayout(top_row)
-        column.addWidget(board)
+        column.addWidget(self.board)
         column.addLayout(bottom_row)
 
         simulatorInstance = SimulatorController.instance()
 
         # Connect button signal to the board's addSquare method.
         addBusButton.clicked.connect(lambda: simulatorInstance.addBus())
-        runPowerFlowButton.clicked.connect(simulatorInstance.runPowerFlow)
-        show_buses_button.clicked.connect(self.show_bus_window)
-        show_lines_button.clicked.connect(self.show_line_window)
-        clearStateButton.clicked.connect(simulatorInstance.clear_state)
-        importFileButton.clicked.connect(board.import_json)
-        expoerFileButton.clicked.connect(board.export_json)
-        importIeeeFileButton.clicked.connect(board.import_ieee)
         show_y_bar_matrix_button.clicked.connect(self.print_network)
 
         # Add widgets to the layout.
         top_row.addWidget(self.powerBaseField)
-        top_row.addWidget(importFileButton)
-        top_row.addWidget(expoerFileButton)
-        top_row.addWidget(importIeeeFileButton)
-        top_row.addWidget(clearStateButton)
 
         # Create a horizontal layout to place the board view on the left and a new widget on the right.
 
         bottom_row.addWidget(addBusButton)
-        bottom_row.addWidget(show_buses_button)
-        bottom_row.addWidget(show_lines_button)
         bottom_row.addWidget(show_y_bar_matrix_button)
-        bottom_row.addWidget(runPowerFlowButton)
 
         self.setCentralWidget(centralWidget)
 
@@ -142,3 +160,15 @@ class MainWindow(QMainWindow):
             self.powerBaseField.setValue(int(controller.power_base_mva))
             return
         controller.power_base_mva = float(powerBase)
+
+    def new_project(self):
+        SimulatorController.instance().clear_state()
+
+    def import_project_from_json(self):
+        self.board.import_json()
+
+    def save_project_to_json(self):
+        self.board.export_json()
+
+    def import_project_from_ieee(self):
+        self.board.import_ieee()
