@@ -1,4 +1,5 @@
 import cmath
+from math import sqrt
 from typing import Any, Callable
 import numpy
 
@@ -52,7 +53,9 @@ class PowerFlow:
             )
         return bus_matrix
 
-    def solve(self, max_iterations: int = 10, max_error: float = 10000.0) -> None:
+    def solve(
+        self, max_iterations: int = 10, max_error: float = 10000.0, decoupled: bool = False
+    ) -> None:
         print("Solving power flow...")
         self.__yMatrix = self.build_bus_matrix()
         self.__update_indexes()
@@ -73,7 +76,7 @@ class PowerFlow:
                 s_sch.append(bus.p_sch)
             elif namedIndex.variable == "v" and (bus.type == BusType.PV or bus.type == BusType.PQ):
                 s_sch.append(bus.q_sch)
-
+        self.split_index: int = 0
         for iteration in range(1, max_iterations + 1):
             print(f"\nIteration {iteration}:")
 
@@ -95,6 +98,7 @@ class PowerFlow:
                 dSdX: Callable[[str, str, dict[str, Bus], YBusSquareMatrix], float] = dPdO
                 if diff == "∂p/∂o":
                     dSdX = dPdO
+                    self.split_index += 1
                 elif diff == "∂p/∂v":
                     dSdX = dPdV
                 elif diff == "∂q/∂o":
@@ -106,26 +110,67 @@ class PowerFlow:
             ds = self.__map_indexes_list(getPowerResidues)
             j = self.__map_indexes_matrix(getJacobianElement)
 
-            dX = numpy.dot(numpy.linalg.inv(j), ds)
+            # decouple split index on jacobian matrix
+            self.split_index = int(sqrt(self.split_index))
+            if decoupled:
+                j_dpdo = [row[: self.split_index] for row in j[: self.split_index]]
+                j_dqdv = [row[self.split_index :] for row in j[self.split_index :]]
+
+                dp = ds[: self.split_index]
+                dq = ds[self.split_index :]
+                do = numpy.dot(numpy.linalg.inv(j_dpdo), dp)
+                dv = numpy.dot(numpy.linalg.inv(j_dqdv), dq)
+                dX = numpy.concatenate((do, dv))
+            else:
+                dX = numpy.dot(numpy.linalg.inv(j), ds)
 
             for i, namedIndex in enumerate(self.indexes):
                 bus_id = namedIndex.busId
                 bus = self.buses[bus_id]
                 if namedIndex.variable == "o":
                     newO = bus.o + dX[i]
-                    if newO > 2 * cmath.pi:
-                        newO = newO % (2 * cmath.pi)
-                    elif newO < -2 * cmath.pi:
-                        newO = newO % (-2 * cmath.pi)
+                    # if newO > cmath.pi:
+                    #     newO = newO % (cmath.pi)
+                    # elif newO < -cmath.pi:
+                    #     newO = newO % (-cmath.pi)
                     bus.o = newO
 
                 elif namedIndex.variable == "v":
                     bus.v = abs(bus.v + dX[i])
 
             err = sum([abs(x) for x in dX])
-            if err > max_error:
-                print(f"|E| = {err}.  Diverged at {iteration}.")
-                raise ValueError(f"Power flow diverged. {iteration} iterations.")
+            # if err > max_error:
+            #     print(f"|E| = {err}.  Diverged at {iteration}.")
+            #     raise ValueError(f"Power flow diverged. {iteration} iterations.")
+
+            has_to_update_indexes: bool = False
+            for i, bus in enumerate(self.buses.values()):
+                if bus.type == BusType.PV:
+                    q = calcQ(bus, self.buses, self.__yMatrix) * self.base
+                    if q > bus.q_max or q < bus.q_min:
+                        print(
+                            f"Bus {bus.name} (PV) has reactive power out of limits: {q:.2f} "
+                            f"({bus.q_min:.2f} - {bus.q_max:.2f})."
+                        )
+
+                        self.buses[bus.id].type = BusType.PQ
+                        self.buses[bus.id].q_sch = bus.q_max if q > bus.q_max else bus.q_min
+                        has_to_update_indexes = True
+
+                if bus.type == BusType.PQ:
+
+                    if bus.v > 1.1 or bus.v < 0.9:
+                        print(
+                            f"Bus {bus.name} (PQ) has voltage out of limits: {bus.v:.2f} "
+                            f"(0.9 - 1.1)."
+                        )
+
+                        self.buses[bus.id].type = BusType.PV
+                        self.buses[bus.id].v_sch = 0.95 if bus.v < 0.95 else 1.05
+                        has_to_update_indexes = True
+
+            if has_to_update_indexes:
+                self.__update_indexes()
 
             if sum([abs(x) for x in dX]) < 1e-10:
                 print(f"|E| = {err}.  Converged at {iteration}.")
@@ -147,9 +192,11 @@ class PowerFlow:
             final: float = 0.0
             rpd: float = 0.0
             final = bus.v if index.variable == "v" else bus.o * 180.0 / cmath.pi
-            if final - start != 0:
-                rpd = 2.0 * 100.0 * (final - start) / (abs(final) + abs(start))
-            print(f"{index.variable}{index.index:3d} {start:+8.4f} -> {final:+8.4f} (RPD {rpd:+4.4f}%)")
+            if final + start != 0.0:
+                rpd = 100.0 * abs(final - start) / ((final + start) / 2)
+            print(
+                f"{index.variable}{index.index:3d} {start:+8.4f} -> {final:+8.4f} (RPD {rpd:+4.4f}%)"
+            )
 
     def print_state(self):
         for bus in self.buses.values():

@@ -19,8 +19,8 @@ class LineTable(QWidget):
         self.setLayout(layout)
 
         self.fields = [
-            "tap bus",
-            "z bus",
+            "from",
+            "to",
             "",
             "r",
             "x",

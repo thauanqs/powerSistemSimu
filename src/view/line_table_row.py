@@ -13,11 +13,11 @@ class LineTableRow:
         SimulatorController.instance().listen(self.circuitListener)
         self.line = line
 
-        # Field 1: "tap bus" (int)
-        self.tapBus = TextField[int](type=int, enabled=False)
+        # Field 1: "tap bus" (str)
+        self.tapBus = TextField[str](type=str, enabled=False)
 
-        # Field 2: "z bus" (int)
-        self.zBus = TextField[int](type=int, enabled=False)
+        # Field 2: "z bus" (str)
+        self.zBus = TextField[str](type=str, enabled=False)
 
         # Field 3: unnamed dropdown (allow user to pick Z or Y)
         self.choiceField = QComboBox()
@@ -95,8 +95,8 @@ class LineTableRow:
         tap_bus: Bus = SimulatorController.instance().get_bus_by_id(self.line.tap_bus_id)
         z_bus: Bus = SimulatorController.instance().get_bus_by_id(self.line.z_bus_id)
         z: complex = 1 / self.line.y
-        self.tapBus.setValue(tap_bus.number)
-        self.zBus.setValue(z_bus.number)
+        self.tapBus.setValue(tap_bus.name)
+        self.zBus.setValue(z_bus.name)
         self.r.setValue(z.real)
         self.x.setValue(z.imag)
         self.g.setValue(self.line.g)
