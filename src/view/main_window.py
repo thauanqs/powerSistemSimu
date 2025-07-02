@@ -130,7 +130,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(busTable)
 
         networkWindow.setCentralWidget(centralWidget)
-        networkWindow.resize(800, 600)
+        networkWindow.resize(1530, 600)
         networkWindow.show()
 
     def show_line_window(self):
@@ -146,7 +146,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(rightWidget)
 
         lineWindow.setCentralWidget(centralWidget)
-        lineWindow.resize(800, 600)
+        lineWindow.resize(930, 600)
         lineWindow.show()
 
     def print_network(self):
