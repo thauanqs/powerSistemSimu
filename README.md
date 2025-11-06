@@ -40,6 +40,6 @@ O arquivo executável será criado como maim.exe na pasta "powerSistemSimu\src\d
 Selecionar: Project > Open IEEE
 
 Os exemplos estão localizados em:   
-    C:\Users\Thauan\Documents\0 - PROJETO SISTEMAS ENERGIA\powerSistemSimu\assets\ieee_examples
+    powerSistemSimu\assets\ieee_examples
 
 
