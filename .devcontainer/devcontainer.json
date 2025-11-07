@@ -1,0 +1,47 @@
+{
+  "name": "Power System Simulation Codespace (Python)",
+  
+  // 1. Definição da Imagem Base (Garante Python 3.12, Git, Node.js e ferramentas essenciais)
+  "image": "mcr.microsoft.com/devcontainers/python:3.12", 
+  
+  // 2. Comandos de Configuração Automática (Executados apenas UMA vez após a criação)
+  "postCreateCommand": "python3 -m venv .venv && .venv/bin/pip install --upgrade pip && .venv/bin/pip install -r requirements.txt",
+  
+  // 3. Configurações Específicas do VS Code (VS Code Customizations)
+  "customizations": {
+    "vscode": {
+      // 3.1. Configurações de Ambiente
+      "settings": {
+        // Define o interpretador Python padrão para o novo venv criado
+        "python.defaultInterpreterPath": ".venv/bin/python",
+        // Sugestões para facilitar o desenvolvimento (opcional)
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": "explicit"
+        }
+      },
+      
+      // 3.2. Extensões Recomendadas (Instaladas automaticamente para todos)
+      "extensions": [
+        "ms-python.python",        // Essencial para Python
+        "ms-python.vscode-pylance", // Servidor de linguagem mais rápido
+        
+        // Suas Extensões Adicionais:
+        "ms-toolsai.jupyter",       // 🟢 Suporte para Notebooks Jupyter
+        "ritwickdey.liveserver",    // 🟢 Para servidor de desenvolvimento web (HTML/CSS/JS)
+        "ms-vscode.live-share",     // Colaboração em tempo real
+        "yzane.markdown-pdf",       // 🟢 Para exportar arquivos Markdown como PDF
+
+        // Outras Extensões que eram recomendadas:
+        "streetsidesoftware.code-spell-checker",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  },
+  
+  // 4. Encaminhamento Automático de Portas (Para o Live Server e outros serviços)
+  "forwardPorts": [5500, 8000, 8080], // Adicionei a porta 5500, padrão do Live Server
+  
+  // 5. Configurações do Terminal (Para carregar o venv automaticamente)
+  "onCreateCommand": "echo 'source .venv/bin/activate' >> ~/.bashrc" 
+}
