@@ -25,18 +25,15 @@
       
       // 3.2. Extensões Recomendadas (Instaladas automaticamente para todos)
       "extensions": [
-        "ms-python.python",        // Essencial para Python
-        "ms-python.vscode-pylance", // Servidor de linguagem mais rápido
-        
-        // Suas Extensões Adicionais:
-        "ms-toolsai.jupyter",       // 🟢 Suporte para Notebooks Jupyter
-        "ritwickdey.liveserver",    // 🟢 Para servidor de desenvolvimento web (HTML/CSS/JS)
-        "ms-vsliveshare.vsliveshare",     // Colaboração em tempo real
-        "yzane.markdown-pdf",       // 🟢 Para exportar arquivos Markdown como PDF
-
-        // Outras Extensões que eram recomendadas:
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter",
+        "ritwickdey.liveserver",
+        "ms-vsliveshare.vsliveshare",
+        "yzane.markdown-pdf",
         "streetsidesoftware.code-spell-checker",
-        "esbenp.prettier-vscode"
+        "esbenp.prettier-vscode",
+        "ms-vscode-remote.remote-containers"
       ]
     }
   },
