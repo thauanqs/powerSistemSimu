@@ -31,7 +31,7 @@
         // Suas Extensões Adicionais:
         "ms-toolsai.jupyter",       // 🟢 Suporte para Notebooks Jupyter
         "ritwickdey.liveserver",    // 🟢 Para servidor de desenvolvimento web (HTML/CSS/JS)
-        "ms-vscode.live-share",     // Colaboração em tempo real
+        "ms-vsliveshare.vsliveshare",     // Colaboração em tempo real
         "yzane.markdown-pdf",       // 🟢 Para exportar arquivos Markdown como PDF
 
         // Outras Extensões que eram recomendadas:
