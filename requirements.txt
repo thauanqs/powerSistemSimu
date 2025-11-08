@@ -114,8 +114,6 @@ pywin32-ctypes==0.2.3
 pywinpty==3.0.2
 PyYAML==6.0.2
 pyzmq==27.1.0
-QDarkStyle==3.2.3
-QtPy==2.4.3
 referencing==0.37.0
 requests==2.32.5
 rfc3339-validator==0.1.4
