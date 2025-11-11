@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QKeySequence, QFont
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -178,6 +178,9 @@ class MainWindow(QMainWindow):
         # 3. Widget de texto para exibir os dados
         text_widget = QPlainTextEdit(data_string)
         text_widget.setReadOnly(True)
+
+        # Define uma fonte monoespaçada (Consolas, Courier New, etc.)
+        text_widget.setFont(QFont("Courier New", 10))
         
         layout.addWidget(text_widget)
         dataWindow.setCentralWidget(centralWidget)

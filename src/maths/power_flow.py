@@ -273,8 +273,16 @@ class PowerFlow:
             output.append(str(connection))
 
         output.append("\nY matrix:")
+
+
         for row in y.y_matrix:
-            output.append("".join([f"{complex(x.real, x.imag):.2f}" for x in row]))
+            # 1. Crie uma lista de strings, onde cada número
+            #    é formatado para ter 18 caracteres de largura, 
+            #    alinhado à direita.
+            padded_row = [f"{f'{complex(x.real, x.imag):.2f}': >18}" for x in row]
+            
+            # 2. Junte as colunas (agora alinhadas) com um único espaço.
+            output.append(" ".join(padded_row))
         
         # Retorne a string formatada em vez de imprimir
         return "\n".join(output)

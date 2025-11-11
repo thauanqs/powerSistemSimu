@@ -1,6 +1,6 @@
 import sys
 import os
-import qdarktheme
+import qdarktheme # remover?
 from typing import * # verificar se typing realmente for usada, definir quais funcoes estao sendo realmente usadas. exemplo: from typing import List, Optional, Union
 
 from PySide6.QtWidgets import QApplication

@@ -111,8 +111,10 @@ class Bus(NetworkElement):
         # if self.q_max:
         #     q_max = f"{self.q_max:+8.2f}"
         return (
-            f"{self.id:4s} {self.type.name:5s}, v={self.v:+4.3f}/_ {(self.o*180/cmath.pi):+6.4f}o |"
-            + f", p={self.p:+8.2f}, q={self.q:+8.2f}"
+            f"{int(self.id):04d} {self.type.name:^7s}, v = {self.v:+4.3f} ∠ {(self.o*180/cmath.pi):+8.3f}° |"
+            + f", p = {self.p:+8.2f}, q = {self.q:+8.2f}"
             + f", p_sch: {self.p_sch:+8.2f}, q_sch: {self.q_sch:+8.2f} |"
             # + f" Q_min: {q_min} | Q_max: {q_max} | shunt: {self.g_shunt:+4.2f}  {self.b_shunt:+4.2f}j |"
+        
+        # A sintaxe geral de formatação em Python é :[[preenchimento]alinhamento][sinal][largura][.precisão][tipo].
         )
