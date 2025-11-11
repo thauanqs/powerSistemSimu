@@ -101,7 +101,10 @@ class SimulatorController:
         for line in self.__connections.values():
             line = line.copyWith()
             pf.add_connection(line)
-        pf.print_data()
+        # Esta linha chama print_data() (que agora deve retornar uma string)
+        # e retorna essa string para quem chamou (a MainWindow)
+        return pf.print_data()
+
 
     def getElementNames(self, ids: list[str]) -> str:
         return " "  # TODO

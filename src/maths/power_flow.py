@@ -261,14 +261,20 @@ class PowerFlow:
 
     def print_data(self):
         y = self.build_bus_matrix()
-        print("Data:")
-        print("\nBuses:")
+        output = ["Data:", "\nBuses:"]
+        
+        # ... Adicione informações de Buses e Connections à lista 'output' ...
         for index, bus in enumerate(self.buses.values()):
             bus.index = index
-            print(bus)
-        print("\nConnections:")
+            output.append(str(bus))
+            
+        output.append("\nConnections:")
         for connection in self.connections.values():
-            print(connection)
-        print("\nY matrix:")
+            output.append(str(connection))
+
+        output.append("\nY matrix:")
         for row in y.y_matrix:
-            print([f"{complex(x.real, x.imag):.2f}" for x in row])
+            output.append("".join([f"{complex(x.real, x.imag):.2f}" for x in row]))
+        
+        # Retorne a string formatada em vez de imprimir
+        return "\n".join(output)
