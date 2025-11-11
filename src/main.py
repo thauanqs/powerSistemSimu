@@ -13,8 +13,8 @@ def main():
 
     window = MainWindow()
 
-    if os.name == "nt":
-        window.setStyleSheet(qdarktheme.load_stylesheet())  # 'light'
+    #if os.name == "nt":
+    #    window.setStyleSheet(qdarktheme.load_stylesheet())  # 'light'
     window.resize(640, 480)
     window.show()
 
