@@ -59,7 +59,7 @@ class Line(NetworkElement):
         return complex(self.g, self.b)
 
     def __str__(self) -> str:
-        return f"{self.tap_bus_id:4} -> {self.z_bus_id:4}, y={complex(self.g,self.b):.4f}, bc = {self.bc:.4f} tap = {self.tap:.4f}"
+        return f"{int(self.tap_bus_id):04d} -> {int(self.z_bus_id):04d}, y = {complex(self.g,self.b):.4f}, bc = {self.bc:.4f} tap = {self.tap:.4f}"
 
     @staticmethod
     def __unrwap_bus_id(bus_id: str | Bus) -> str:
