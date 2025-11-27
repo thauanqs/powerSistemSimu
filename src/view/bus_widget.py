@@ -32,6 +32,12 @@ class BusWidget(QGraphicsRectItem):
             self.bus = node
             self.label.setText(self.__label)
 
+    def mouseDoubleClickEvent(self, event):
+        # Duplo clique na barra -> estudo de falta trifásica nesta barra
+        SimulatorController.instance().runThreePhaseFaultOnBus(self.bus.id)
+        super().mouseDoubleClickEvent(event)
+
+
     @property
     def __label(self) -> str:
         bus: Bus = self.bus

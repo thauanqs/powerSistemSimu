@@ -5,6 +5,9 @@ from models.bus import Bus
 from models.line import Line
 from models.network_element import ElementEvent, NetworkElement
 from typing import cast
+from PySide6.QtWidgets import QMessageBox
+from maths.short_circuit import run_three_phase_fault_from_powerflow
+import numpy as np
 
 
 class SimulatorController:
@@ -39,6 +42,7 @@ class SimulatorController:
         self.__connections = dict[str, Line]()
         self.__listeners: list[Callable[[NetworkElement, ElementEvent], None]] = []
         self.power_base_mva: float = 100.0
+        self.__power_flow: PowerFlow | None = None
 
     def listen(self, callback: Callable[[NetworkElement, ElementEvent], None]) -> None:
         self.__listeners.append(callback)
@@ -87,7 +91,9 @@ class SimulatorController:
             power_flow.add_bus(bus)
         for connection in self.__connections.values():
             power_flow.add_connection(connection)
+
         power_flow.solve()
+        self.__power_flow = power_flow
 
         for bus in self.__buses.values():
             for callback in self.__listeners:
@@ -105,3 +111,45 @@ class SimulatorController:
 
     def getElementNames(self, ids: list[str]) -> str:
         return " "  # TODO
+    
+    def runThreePhaseFaultOnBus(self, bus_id: str) -> None:
+        """
+        Executa falta trifásica na barra indicada e mostra a corrente de falta.
+
+        Para funcionar, é preciso ter rodado runPowerFlow() antes
+        (para preencher self.__power_flow).
+        """
+        if self.__power_flow is None:
+            QMessageBox.warning(
+                None,  # ideal: janela principal como parent
+                "Curto-circuito",
+                "Execute o fluxo de potência antes de calcular a falta."
+            )
+            return
+
+        try:
+            result = run_three_phase_fault_from_powerflow(self.__power_flow, bus_id)
+        except Exception as e:
+            QMessageBox.critical(
+                None,
+                "Curto-circuito",
+                f"Erro ao calcular falta 3φ na barra {bus_id}:\n{e}"
+            )
+            return
+
+        If = result.fault_current_pu
+        If_mag = np.abs(If)
+        If_ang = np.rad2deg(np.angle(If))
+
+        msg = (
+            f"Falta 3φ na barra {bus_id}\n\n"
+            f"|If| = {If_mag:.4f} pu\n"
+            f"∠If = {If_ang:.2f}°"
+        )
+
+        QMessageBox.information(
+            None,  # ideal: janela principal como parent
+            "Resultado de falta trifásica",
+            msg,
+        )
+

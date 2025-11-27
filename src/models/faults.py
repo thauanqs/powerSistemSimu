@@ -1,0 +1,57 @@
+from dataclasses import dataclass
+from enum import Enum
+from typing import Dict
+
+
+class FaultType(Enum):
+    """
+    Tipos de falta que vamos suportar.
+
+    Por enquanto vamos usar só THREE_PHASE (3φ),
+    mas já deixamos as outras preparadas para o futuro.
+    """
+    THREE_PHASE = "3φ"   # falta trifásica simétrica
+    SLG = "SLG"          # falta monofásica terra
+    LL = "LL"            # falta fase-fase
+    DLG = "DLG"          # falta dupla-fase terra
+
+
+@dataclass
+class FaultSpec:
+    """
+    Especificação de uma falta (entrada do estudo).
+
+    Exemplo:
+        FaultSpec(bus_id="B5", fault_type=FaultType.THREE_PHASE)
+    """
+    bus_id: str
+    fault_type: FaultType
+    z_fault_pu: complex = 0+0j
+    description: str = ""
+
+
+@dataclass
+class FaultResultBasic:
+    """
+    Resultado básico em uma barra para um estudo de falta.
+
+    v_pu: tensão em pu (seq. positiva / fase equivalente)
+    i_pu: corrente em pu (seq. positiva / fase equivalente)
+    """
+    bus_id: str
+    v_pu: complex
+    i_pu: complex
+
+
+@dataclass
+class FaultStudyResult:
+    """
+    Resultado de um estudo de falta (por enquanto, 3φ):
+
+    - spec: dados da falta (onde, tipo, Zf)
+    - fault_current_pu: corrente de falta na barra em falta (pu)
+    - buses: resultados por barra (tensão e corrente “local” simplificada)
+    """
+    spec: FaultSpec
+    fault_current_pu: complex
+    buses: Dict[str, FaultResultBasic]

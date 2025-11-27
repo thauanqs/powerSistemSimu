@@ -201,6 +201,40 @@ class PowerFlow:
     def print_state(self):
         for bus in self.buses.values():
             print(f"Bus: {bus.name}, V: {bus.v}, O: {bus.o}, P: {bus.p}, Q: {bus.q}")
+            
+
+    # --------------------------------------------------------------------
+    # Adição do código para cálculo de faltas
+
+    def get_ybus_numpy(self) -> numpy.ndarray:
+        """
+        Devolve a matriz Ybus interna como um numpy.ndarray de complexos.
+        Deve ser chamada DEPOIS de solve(), pois usa self.__yMatrix.
+        """
+        # self.__yMatrix.y_matrix é uma lista de listas de complexos
+        return numpy.array(self.__yMatrix.y_matrix, dtype=complex)
+
+    def get_bus_index_dict(self) -> dict[str, int]:
+        """
+        Devolve um dicionário {bus_id: indice_na_matriz}.
+        """
+        return {bus.id: bus.index for bus in self.buses.values()}
+
+    def get_bus_voltages_complex_pu(self) -> dict[str, complex]:
+        """
+        Devolve um dicionário {bus_id: V_complex_pu} com a tensão pré-falta.
+
+        Usa V = |V| * e^{j·theta}, onde:
+          - bus.v é o módulo em pu
+          - bus.o é o ângulo em radianos
+        """
+        return {
+            bus.id: bus.v * cmath.exp(1j * bus.o)
+            for bus in self.buses.values()
+        }
+
+    # --------------------------------------------------------------------
+
 
     def transposeList(self, list: list[float]) -> list[list[float]]:
         return [[list[j]] for j in range(len(list))]
