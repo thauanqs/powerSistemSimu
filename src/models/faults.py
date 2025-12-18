@@ -11,9 +11,9 @@ class FaultType(Enum):
     mas já deixamos as outras preparadas para o futuro.
     """
     THREE_PHASE = "3φ"   # falta trifásica simétrica
-    SLG = "SLG"          # falta monofásica terra
-    LL = "LL"            # falta fase-fase
-    DLG = "DLG"          # falta dupla-fase terra
+    SINGLE_LINE_TO_GROUND = "SLG"          # falta monofásica terra
+    LINE_TO_LINE = "LL"            # falta fase-fase
+    DOUBLE_LINE_TO_GROUND = "DLG"          # falta dupla-fase terra
 
 
 @dataclass
@@ -28,6 +28,7 @@ class FaultSpec:
     fault_type: FaultType
     z_fault_pu: complex = 0+0j
     description: str = ""
+    phase: str = "A"
 
 
 @dataclass

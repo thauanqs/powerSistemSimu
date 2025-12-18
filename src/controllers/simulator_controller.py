@@ -4,9 +4,11 @@ from maths.power_flow import PowerFlow
 from models.bus import Bus
 from models.line import Line
 from models.network_element import ElementEvent, NetworkElement
+from models.faults import FaultType, FaultStudyResult
 from typing import cast
-from PySide6.QtWidgets import QMessageBox
-from maths.short_circuit import run_three_phase_fault_from_powerflow
+from PySide6.QtWidgets import QMessageBox, QInputDialog
+from maths.short_circuit import (run_three_phase_fault_from_powerflow, run_slg_fault_from_powerflow, run_ll_fault_from_powerflow, run_dlg_fault_from_powerflow)
+from view.fault_result_dialog import FaultResultDialog
 import numpy as np
 
 
@@ -112,44 +114,63 @@ class SimulatorController:
     def getElementNames(self, ids: list[str]) -> str:
         return " "  # TODO
     
-    def runThreePhaseFaultOnBus(self, bus_id: str) -> None:
+    def _show_fault_result_dialog(self, result: FaultStudyResult, window_title: str) -> None:
+        dlg = FaultResultDialog(result)
+        dlg.setWindowTitle(window_title)
+        dlg.exec()
+    
+    def chooseAndRunFaultOnBus(self, bus_id: str) -> None:
         """
-        Executa falta trifásica na barra indicada e mostra a corrente de falta.
-
-        Para funcionar, é preciso ter rodado runPowerFlow() antes
-        (para preencher self.__power_flow).
+        Abre um diálogo para o usuário escolher o tipo de falta
+        e executa o estudo na barra indicada.
         """
         if self.__power_flow is None:
             QMessageBox.warning(
-                None,  # ideal: janela principal como parent
-                "Curto-circuito",
-                "Execute o fluxo de potência antes de calcular a falta."
-            )
-            return
-
-        try:
-            result = run_three_phase_fault_from_powerflow(self.__power_flow, bus_id)
-        except Exception as e:
-            QMessageBox.critical(
                 None,
                 "Curto-circuito",
-                f"Erro ao calcular falta 3φ na barra {bus_id}:\n{e}"
+                "Execute o fluxo de potência antes de calcular a falta.",
             )
             return
 
-        If = result.fault_current_pu
-        If_mag = np.abs(If)
-        If_ang = np.rad2deg(np.angle(If))
+        items = [
+            "Falta trifásica (3φ)",
+            "Falta monofásica fase-terra (SLG)",
+            "Falta fase-fase (LL)",
+            "Falta dupla fase-terra (DLG)",
+        ]
 
-        msg = (
-            f"Falta 3φ na barra {bus_id}\n\n"
-            f"|If| = {If_mag:.4f} pu\n"
-            f"∠If = {If_ang:.2f}°"
+        item, ok = QInputDialog.getItem(
+            None,
+            "Tipo de falta",
+            f"Selecione o tipo de falta na barra {bus_id}:",
+            items,
+            0,
+            False,
         )
+        if not ok:
+            return
 
-        QMessageBox.information(
-            None,  # ideal: janela principal como parent
-            "Resultado de falta trifásica",
-            msg,
-        )
+        if item.startswith("Falta trifásica"):
+            self._run_three_phase_fault_on_bus(bus_id)
+        elif item.startswith("Falta monofásica"):
+            self._run_slg_fault_on_bus(bus_id)
+        elif item.startswith("Falta fase-fase"):    
+            self._run_ll_fault_on_bus(bus_id)
+        elif item.startswith("Falta dupla"):
+            self._run_dlg_fault_on_bus(bus_id)
 
+    def _run_three_phase_fault_on_bus(self, bus_id: str) -> None:
+        result = run_three_phase_fault_from_powerflow(self.__power_flow, bus_id)
+        self._show_fault_result_dialog(result, f"Falta 3φ na barra {bus_id}")
+
+    def _run_slg_fault_on_bus(self, bus_id: str) -> None:
+        result = run_slg_fault_from_powerflow(self.__power_flow, bus_id)
+        self._show_fault_result_dialog(result, f"Falta SLG na barra {bus_id}")
+
+    def _run_ll_fault_on_bus(self, bus_id: str) -> None:
+        result = run_ll_fault_from_powerflow(self.__power_flow, bus_id)
+        self._show_fault_result_dialog(result, f"Falta LL na barra {bus_id}")
+        
+    def _run_dlg_fault_on_bus(self, bus_id: str) -> None:
+        result = run_dlg_fault_from_powerflow(self.__power_flow, bus_id)
+        self._show_fault_result_dialog(result, f"Falta DLG na barra {bus_id}")
