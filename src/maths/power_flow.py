@@ -2,6 +2,7 @@ import cmath
 from math import sqrt
 from typing import Any, Callable
 import numpy
+import numpy as np 
 
 from maths.power_calculator import calcP, calcQ, dPdO, dPdV, dQdO, dQdV
 from models.line import Line
@@ -36,22 +37,59 @@ class PowerFlow:
     def add_connection(self, connection: Line) -> None:
         self.connections[connection.id] = connection
 
-    def build_bus_matrix(self) -> YBusSquareMatrix:
+    def build_bus_matrix(self, sequence: str = "positive") -> YBusSquareMatrix:
+        """
+        Monta a Ybus para a sequência indicada:
+
+        - "positive"  -> usa y1, b1
+        - "negative"  -> usa y2, b1 (em geral parecida com a positiva)
+        - "zero"      -> usa y0, b0
+        """
         bus_matrix: YBusSquareMatrix = YBusSquareMatrix()
 
+        # barras (shunt da barra) – mantemos igual em todas as sequências por enquanto
         for index, bus in enumerate(self.buses.values()):
             bus_matrix.add_bus(complex(bus.g_shunt, bus.b_shunt))
             bus.index = index
 
+        # conexões entre barras
         for connection in self.connections.values():
+            if sequence == "positive":
+                y_series = connection.y1
+                bc = connection.b1
+            elif sequence == "negative":
+                y_series = connection.y2
+                bc = connection.b1   # muitas vezes igual à positiva
+            elif sequence == "zero":
+                y_series = connection.y0
+                bc = connection.b0
+            else:
+                raise ValueError(f"Sequência inválida: {sequence}")
+
             bus_matrix.connect_bus_to_bus(
-                y=connection.y,
+                y=y_series,
                 source=self.buses[connection.tap_bus_id].index,
                 target=self.buses[connection.z_bus_id].index,
-                bc=connection.bc,
+                bc=bc,
                 tap=connection.tap,
             )
+
         return bus_matrix
+
+    def get_ybus_numpy_sequences(self):
+        """
+        Retorna (Y1, Y2, Y0) como np.ndarray para estudos de curto-circuito.
+
+        Y1: sequência positiva
+        Y2: sequência negativa
+        Y0: sequência zero
+        """
+        Y1 = self.build_bus_matrix("positive").y_matrix
+        Y2 = self.build_bus_matrix("negative").y_matrix
+        Y0 = self.build_bus_matrix("zero").y_matrix
+
+        return np.array(Y1, dtype=complex), np.array(Y2, dtype=complex), np.array(Y0, dtype=complex)
+
 
     def solve(
         self, max_iterations: int = 10, max_error: float = 10000.0, decoupled: bool = False
