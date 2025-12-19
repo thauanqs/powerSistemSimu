@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QKeySequence, QFont
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -16,6 +16,8 @@ from view.bus_table import BusTable
 
 from view.line_table import LineTable
 from view.text_field import TextField
+from PySide6.QtWidgets import QFileDialog
+import os
 
 
 class MainWindow(QMainWindow):
@@ -47,6 +49,11 @@ class MainWindow(QMainWindow):
         projectSave.triggered.connect(self.save_project_to_json)
         project.addAction(projectSave)
 
+        projectExportPDF = QAction("Export PDF", project)
+        projectExportPDF.setShortcut(QKeySequence("Ctrl+E"))
+        projectExportPDF.triggered.connect(self.export_pdf)
+        project.addAction(projectExportPDF)
+
         projectImportIeee = QAction("Open IEEE ", project)
         projectImportIeee.setShortcut(QKeySequence("Ctrl+I"))
         projectImportIeee.triggered.connect(self.import_project_from_ieee)
@@ -64,6 +71,12 @@ class MainWindow(QMainWindow):
         show = toolbar.addMenu("Show")
         showYMatrix = QAction("Y Matrix", show)
 
+        # 1. Conecte o MENU (showYMatrix) ao seu método
+        showYMatrix.triggered.connect(self.show_y_matrix_window)
+
+       
+
+        
         show.addAction(showYMatrix)
 
         run = toolbar.addMenu("Run")
@@ -82,7 +95,7 @@ class MainWindow(QMainWindow):
         addBusButton.setFixedSize(70, 30)
         addBusButton.setIconSize(QSize(70, 30))
 
-        show_y_bar_matrix_button = QPushButton("Print Network")
+        show_y_bar_matrix_button = QPushButton("Print Network") #importante
         show_y_bar_matrix_button.setFixedSize(110, 30)
 
         self.powerBaseField = TextField[int](
@@ -105,7 +118,7 @@ class MainWindow(QMainWindow):
 
         # Connect button signal to the board's addSquare method.
         addBusButton.clicked.connect(lambda: simulatorInstance.addBus())
-        show_y_bar_matrix_button.clicked.connect(self.print_network)
+        show_y_bar_matrix_button.clicked.connect(self.show_network_data_window)  #importante
 
         # Add widgets to the layout.
         top_row.addWidget(self.powerBaseField)
@@ -149,8 +162,38 @@ class MainWindow(QMainWindow):
         lineWindow.resize(930, 600)
         lineWindow.show()
 
-    def print_network(self):
+    def print_network(self): #importante
         SimulatorController.instance().printNetwork()
+
+    def show_y_matrix_window(self):
+        # Usaremos o mesmo método para ambos, apenas para fins de demonstração
+        self.show_network_data_window()
+
+    def show_network_data_window(self):
+        from PySide6.QtWidgets import QMainWindow, QPlainTextEdit, QWidget, QVBoxLayout
+        
+        # 1. Obter a string de dados do Controller
+        data_string = SimulatorController.instance().printNetwork() 
+        
+        # 2. Configurar a nova janela
+        dataWindow = QMainWindow(parent=self)
+        dataWindow.setWindowTitle("Network Data and Y Matrix")
+        
+        centralWidget = QWidget()
+        layout = QVBoxLayout(centralWidget)
+        
+        # 3. Widget de texto para exibir os dados
+        text_widget = QPlainTextEdit(data_string)
+        text_widget.setReadOnly(True)
+
+        # Define uma fonte monoespaçada (Consolas, Courier New, etc.)
+        text_widget.setFont(QFont("Courier New", 10))
+        
+        layout.addWidget(text_widget)
+        dataWindow.setCentralWidget(centralWidget)
+        
+        dataWindow.resize(800, 600)
+        dataWindow.show()
 
     def on_power_base_changed(self):
         controller = SimulatorController.instance()
@@ -172,3 +215,19 @@ class MainWindow(QMainWindow):
 
     def import_project_from_ieee(self):
         self.board.import_ieee()
+
+    def export_pdf(self):
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Exportar Relatório PDF",
+            "relatorio_fluxo_potencia.pdf",
+            "PDF Files (*.pdf)"
+        )
+
+        if not filename:
+            return
+
+        if not filename.lower().endswith(".pdf"):
+            filename += ".pdf"
+
+        SimulatorController.instance().export_pdf_report(filename)

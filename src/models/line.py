@@ -121,11 +121,7 @@ class Line(NetworkElement):
         return self.bc0 if self.bc0 is not None else self.b1
 
     def __str__(self) -> str:
-        return (
-            f"{self.tap_bus_id:4} -> {self.z_bus_id:4}, "
-            f"y={complex(self.g, self.b):.4f}, "
-            f"bc = {self.bc:.4f} tap = {self.tap:.4f}"
-        )
+        return f"{int(self.tap_bus_id):04d} -> {int(self.z_bus_id):04d}, y = {complex(self.g,self.b):.4f}, bc = {self.bc:.4f} tap = {self.tap:.4f}"
 
     @staticmethod
     def __unrwap_bus_id(bus_id: str | Bus) -> str:
