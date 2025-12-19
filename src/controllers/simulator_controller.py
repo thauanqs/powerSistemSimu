@@ -1,10 +1,22 @@
 from typing import Callable
+import os 
 
 from maths.power_flow import PowerFlow
 from models.bus import Bus
 from models.line import Line
 from models.network_element import ElementEvent, NetworkElement
 from typing import cast
+
+from view.voltage_profile_plot import (
+    show_voltage_profile,
+    save_voltage_profile_chunks
+)
+
+from view.report_generator import generate_pdf_report
+
+from reports.pdf_report import generate_pdf
+
+
 
 
 class SimulatorController:
@@ -92,6 +104,40 @@ class SimulatorController:
         for bus in self.__buses.values():
             for callback in self.__listeners:
                 callback(bus, ElementEvent.UPDATED)
+        from view.voltage_profile_plot import show_voltage_profile
+
+        # =============================
+        # GERAR DADOS DO RELATÓRIO
+        # =============================
+
+        buses = []
+        voltages = []
+
+        for bus in self.__buses.values():
+            buses.append(bus.number)          # número da barra
+            voltages.append(bus.v)      # magnitude da tensão (pu)
+
+        # =============================
+        # GERAR GRÁFICO
+        # =============================
+        image_path = os.path.abspath("perfil_tensao.png")
+        show_voltage_profile(
+            buses=buses,
+            voltages=voltages,
+            save_path=image_path
+        )
+
+        
+    #    bus_data = self.get_bus_report_data()
+
+    #    generate_pdf(
+    #       filename="relatorio_fluxo_potencia.pdf",
+    #       bus_data=bus_data,
+    #       image_path="perfil_tensao.png",
+    #       logo_path="reports/assets/logo.png"
+    #   )
+
+    
 
     def printNetwork(self):
         pf = PowerFlow()
@@ -108,3 +154,59 @@ class SimulatorController:
 
     def getElementNames(self, ids: list[str]) -> str:
         return " "  # TODO
+
+
+    def export_pdf_report(self, pdf_path: str):
+        if not self.__buses:
+            return
+
+        buses = []
+        voltages = []
+
+        for bus in self.__buses.values():
+            buses.append(bus.number)
+            voltages.append(bus.v)
+
+        output_dir = os.path.abspath("temp_graficos")
+
+        image_paths = save_voltage_profile_chunks(
+            buses=buses,
+            voltages=voltages,
+            output_dir=output_dir,
+            bars_per_image=20
+        )
+
+        # gera PDF
+        bus_data = self.get_bus_report_data()
+        generate_pdf(
+            filename=pdf_path,
+            bus_data=bus_data,
+            image_paths=image_paths,
+            logo_path="reports/assets/logo.png"
+        )
+
+        # gera PDF
+        
+#       generate_pdf_report(
+#          filename=pdf_path,
+#          buses=buses,
+#          voltages=voltages,
+#          image_path=image_path,
+#      )
+
+
+    def get_bus_report_data(self):
+        data = []
+        for bus in self.__buses.values():
+            data.append({
+                "id": bus.number,
+                "type": bus.type,
+                "v": bus.v,
+                "angle": bus.o * 180 / 3.141592653589793,  # em graus
+                "p": bus.p,
+                "q": bus.q,
+                "p_sch": bus.p_sch,
+                "q_sch": bus.q_sch
+            })
+        return data
+

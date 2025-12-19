@@ -16,6 +16,8 @@ from view.bus_table import BusTable
 
 from view.line_table import LineTable
 from view.text_field import TextField
+from PySide6.QtWidgets import QFileDialog
+import os
 
 
 class MainWindow(QMainWindow):
@@ -46,6 +48,11 @@ class MainWindow(QMainWindow):
         projectSave.setShortcut(QKeySequence.StandardKey.Save)
         projectSave.triggered.connect(self.save_project_to_json)
         project.addAction(projectSave)
+
+        projectExportPDF = QAction("Export PDF", project)
+        projectExportPDF.setShortcut(QKeySequence("Ctrl+E"))
+        projectExportPDF.triggered.connect(self.export_pdf)
+        project.addAction(projectExportPDF)
 
         projectImportIeee = QAction("Open IEEE ", project)
         projectImportIeee.setShortcut(QKeySequence("Ctrl+I"))
@@ -208,3 +215,19 @@ class MainWindow(QMainWindow):
 
     def import_project_from_ieee(self):
         self.board.import_ieee()
+
+    def export_pdf(self):
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Exportar Relatório PDF",
+            "relatorio_fluxo_potencia.pdf",
+            "PDF Files (*.pdf)"
+        )
+
+        if not filename:
+            return
+
+        if not filename.lower().endswith(".pdf"):
+            filename += ".pdf"
+
+        SimulatorController.instance().export_pdf_report(filename)
