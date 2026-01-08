@@ -71,36 +71,60 @@ class LineTableRow:
         pass
 
     def save(self) -> None:
-        b: float | None = None
-        g: float | None = None
-        if self.choiceField.currentIndex() == 0:
+        bc = self.bc.getValue()
+        tap = self.tap.getValue()
+
+        # Vamos calcular SEMPRE y (g+jb) e z (r+jx) e manter coerentes
+        if self.choiceField.currentIndex() == 0:  # Z
             r = self.r.getValue()
             x = self.x.getValue()
             if r is None or x is None:
                 SimulatorController.instance().updateElement(self.line.copyWith())
                 return
-            y = 1 / complex(r, x)
+
+            z = complex(r, x)
+            y = 0j if abs(z) < 1e-12 else (1 / z)
+
             g = y.real
             b = y.imag
-        else:
+
+        else:  # Y
             g = self.g.getValue()
             b = self.b.getValue()
+            if g is None or b is None:
+                SimulatorController.instance().updateElement(self.line.copyWith())
+                return
 
-        bc = self.bc.getValue()
-        tap = self.tap.getValue()
+            y = complex(g, b)
+            z = 0j if abs(y) < 1e-12 else (1 / y)
 
-        SimulatorController.instance().updateElement(self.line.copyWith(b=b, g=g, bc=bc, tap=tap))
+        # Atualiza z1 SEMPRE (porque é isso que o solver usa em y1)
+        new_z1 = z
+
+        # Se z2/z0 não foram definidos (None), mantém iguais ao positivo (didático)
+        new_z2 = self.line.z2 if self.line.z2 is not None else z
+        new_z0 = self.line.z0 if self.line.z0 is not None else (3 * z)  # <-- AQUI
+
+        SimulatorController.instance().updateElement(
+            self.line.copyWith(
+                g=g, b=b,
+                bc=bc, tap=tap,
+                z1=new_z1, z2=new_z2, z0=new_z0
+            )
+        )
 
     def update_values(self) -> None:
         tap_bus: Bus = SimulatorController.instance().get_bus_by_id(self.line.tap_bus_id)
         z_bus: Bus = SimulatorController.instance().get_bus_by_id(self.line.z_bus_id)
-        z: complex = 1 / self.line.y
+        # Mostra o que o cálculo realmente usa:
+        z = self.line.z1 if self.line.z1 is not None else (0j if abs(self.line.y) < 1e-12 else 1 / self.line.y)
+        y = self.line.y1  # adm. usada na sequência positiva
         self.tapBus.setValue(tap_bus.name)
         self.zBus.setValue(z_bus.name)
         self.r.setValue(z.real)
         self.x.setValue(z.imag)
-        self.g.setValue(self.line.g)
-        self.b.setValue(self.line.b)
+        self.g.setValue(y.real)
+        self.b.setValue(y.imag)
         if self.line.bc != 0.0:
             self.bc.setValue(self.line.bc)
         else:

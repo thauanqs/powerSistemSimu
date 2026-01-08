@@ -83,6 +83,7 @@ class Bus(NetworkElement):
         index: int | None = None,
         b_shunt: float | None = None,
         g_shunt: float | None = None,
+        id: str | None = None,  
     ) -> "Bus":
         return Bus(
             name=name if name is not None else self.name,
@@ -100,7 +101,7 @@ class Bus(NetworkElement):
             q_load=q_load if q_load is not None else self.q_load,
             p_gen=p_gen if p_gen is not None else self.p_gen,
             q_gen=q_gen if q_gen is not None else self.q_gen,
-            id=self.id,
+            id=id if id is not None else self.id,
         )
 
     def __str__(self) -> str:

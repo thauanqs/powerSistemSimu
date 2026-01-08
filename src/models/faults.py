@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict
+from typing import Dict, Optional, Tuple
 
 
 class FaultType(Enum):
@@ -42,7 +42,8 @@ class FaultResultBasic:
     bus_id: str
     v_pu: complex
     i_pu: complex
-
+    v_abc: Optional[Tuple[complex, complex, complex]] = None
+    i_abc: Optional[Tuple[complex, complex, complex]] = None
 
 @dataclass
 class FaultStudyResult:
