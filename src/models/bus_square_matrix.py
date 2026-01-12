@@ -1,75 +1,83 @@
-from typing import Callable
+# src/models/bus_square_matrix.py
+from __future__ import annotations
 
-from scipy import linalg
+from dataclasses import dataclass
+from typing import Generic, List, Optional, TypeVar
 
-# row major -> m[r][c]
-# ie: [m00 m01 m02]
-#     [m10 m11 m12]
-#     [m20 m21 m22]
-
-zero = complex(0)
+T = TypeVar("T")
 
 
-class BusSquareMatrix:
-    def __init__(self, m: list[list[complex | float]] = []) -> None:
-        self.__m: list[list[complex | float]] = m
-        self.__size = len(m)
+@dataclass
+class BusIndex:
+    bus_id: str
+    index: int
 
-    @classmethod
-    def generator(
-        self, size: int, builder: Callable[[int, int], complex] = lambda r, c: zero
-    ) -> "BusSquareMatrix":
-        m: list[list[complex | float]] = [[builder(r, c) for c in range(size)] for r in range(size)]
-        return BusSquareMatrix(m)
+
+class BusSquareMatrix(Generic[T]):
+    def __init__(self, m: Optional[List[List[T]]] = None) -> None:
+        # EVITA default mutável compartilhado entre instâncias
+        self.__m: List[List[T]] = m if m is not None else []
+        self.__indexes: List[BusIndex] = []
 
     @property
-    def matrix(self) -> list[list[complex | float]]:
-        return self.__m
-
-    @property
-    def inverse(self) -> list[list[complex | float]]:
-        return linalg.inv(self.__m)
+    def matrix(self):
+        return self.__m  # ou o nome real da tua matriz interna
 
     @property
     def size(self) -> int:
-        return self.__size
+        # mais robusto do que manter "size" separado
+        return len(self.__m)
+    
+    @property
+    def inverse(self):
+        import numpy as np
+        return np.linalg.inv(np.array(self.matrix, dtype=complex)).tolist()
 
-    def decrease_order(self) -> "BusSquareMatrix":
-        size = self.__size
-        new_size = size - 1
 
-        def mapper(i: int, j: int) -> complex:
-            return (
-                self.__m[i][j]
-                - self.__m[i][size - 1] * self.__m[size - 1][j] / self.__m[size - 1][size - 1]
-            )
+    def add_bus(self, bus_id: str, initial_value: T) -> None:
+        bus_index = BusIndex(bus_id, self.size)
+        self.__indexes.append(bus_index)
 
-        return BusSquareMatrix([[mapper(i, j) for i in range(new_size)] for j in range(new_size)])
+        # adiciona coluna nas linhas existentes
+        for row in self.__m:
+            row.append(initial_value)
 
-    def increase_order(
-        self,
-        new_row: Callable[[int], complex] = lambda c: zero,  # (c: int) -> complex,
-        new_column: Callable[[int], complex] = lambda r: zero,  # (r: int) -> complex,
-        last_value: complex = zero,  # complex,
-    ) -> "BusSquareMatrix":
-        size = self.__size
-        if size == 0:
-            return BusSquareMatrix([[last_value]])
+        # adiciona nova linha
+        self.__m.append([initial_value] * (self.size + 1))
 
-        m: list[list[complex | float]] = [
-            [self.__m[r][c] for r in range(size)] for c in range(size)
-        ]  # copia matriz
+    def remove_bus(self, bus_id: str) -> None:
+        idx = self.get_bus_index(bus_id)
 
-        for r in range(size):
-            m[r].append(new_column(r))  # adiciona nova coluna no fim
+        self.__m.pop(idx)
+        for row in self.__m:
+            row.pop(idx)
 
-        new_row: list[complex] = [new_row(c) for c in range(size)]  # copia ultima linha
-        new_row.append(last_value)  # adiciona ultimo valor da matriz
-        m.append(new_row)  # adiciona nova linha no fim
-        return BusSquareMatrix(m)
+        self.__indexes = [b for b in self.__indexes if b.bus_id != bus_id]
+        for b in self.__indexes:
+            if b.index > idx:
+                b.index -= 1
 
-    def __str__(self) -> str:
-        return "\n".join([" ".join([f"{c:+10.2f}" for c in row]) for row in self.__m]) + "\n"
+    def set_value(self, i: int, j: int, value: T) -> None:
+        self.__m[i][j] = value
 
-    def __getitem__(self, row: int) -> list[complex | float]:
-        return self.__m[row]
+    def get_value(self, i: int, j: int) -> T:
+        return self.__m[i][j]
+
+    def get_bus_index(self, bus_id: str) -> int:
+        for b in self.__indexes:
+            if b.bus_id == bus_id:
+                return b.index
+        raise ValueError(f"Bus id not found: {bus_id}")
+
+    def get_bus_id(self, index: int) -> str:
+        for b in self.__indexes:
+            if b.index == index:
+                return b.bus_id
+        raise ValueError(f"Bus index not found: {index}")
+
+    def as_list(self) -> List[List[T]]:
+        return self.__m
+
+    def clear(self) -> None:
+        self.__m = []
+        self.__indexes = []

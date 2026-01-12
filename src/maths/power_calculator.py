@@ -4,6 +4,18 @@ from math import cos, sin
 from models.bus import Bus
 from models.y_bus_square_matrix import YBusSquareMatrix
 
+def _bii_total(bus_i: Bus, buses: dict[str, Bus], Y: YBusSquareMatrix) -> float:
+    """
+    Retorna B_ii efetivo = imag(Y_ii) + soma(line_charging/2) de todas as conexões incidentes.
+    No teu YBusSquareMatrix, o bc não entra na matriz, então precisamos somar aqui.
+    """
+    bc_half_sum = 0.0
+    for b in buses.values():
+        if b.index == bus_i.index:
+            continue
+        bc_half_sum += Y.getBc(bus_i.index, b.index) / 2.0
+    return float(Y.y_matrix[bus_i.index][bus_i.index].imag) + bc_half_sum
+
 
 # P_i = ∑ |Vi| |Vj| |Yij| cos(θij - δi + δj)
 #       j
@@ -27,13 +39,12 @@ def calcQ(
     buses: dict[str, "Bus"],
     Y: YBusSquareMatrix,
 ) -> float:
-    sum: float = 0.0
+    s = 0.0
     for bus in buses.values():
         y = abs(Y.y_matrix[self.index][bus.index])
         theta = cmath.phase(Y.y_matrix[self.index][bus.index])
-        sum += self.v * bus.v * y * sin(theta - self.o + bus.o)
-        sum += self.v * self.v * Y.getBc(self.index, bus.index) / 2  # TODO is it really it?!
-    return -sum
+        s += self.v * bus.v * y * sin(theta - self.o + bus.o)
+    return -s
 
 
 @staticmethod
@@ -53,6 +64,7 @@ def dPdO(  # dPi/dOj
     bus = buses[i_id]
     b = Y.y_matrix[bus.index][bus.index].imag
     return -bus.v * bus.v * b - calcQ(bus, buses, Y)
+
 
 
 def dPdV(  # dPi/dOj

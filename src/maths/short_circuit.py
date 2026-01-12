@@ -12,6 +12,21 @@ class ThreePhaseFaultResult:
     V_post: Dict[str, complex]         # tensões pós-falta em cada barra (pu)
 
 
+def safe_inv(Y: np.ndarray, eps: float = 1e-9) -> np.ndarray:
+    try:
+        return np.linalg.inv(Y)
+    except np.linalg.LinAlgError:
+        # Regulariza a diagonal (equivale a colocar um shunt absurdamente grande -> quase aberto)
+        Yreg = Y.copy().astype(complex)
+        idx = np.diag_indices_from(Yreg)
+        Yreg[idx] += eps
+        try:
+            return np.linalg.inv(Yreg)
+        except np.linalg.LinAlgError:
+            # Último recurso
+            return np.linalg.pinv(Yreg)
+
+
 class ShortCircuitSolver:
     """
     Resolve falta trifásica (simétrica) usando apenas a rede de sequência positiva.
@@ -30,9 +45,9 @@ class ShortCircuitSolver:
         self.pre_v = pre_fault_voltages
         self.bus_index = bus_index
 
-        self.z1 = np.linalg.inv(self.y1)
-        self.z2 = np.linalg.inv(self.y2)
-        self.z0 = np.linalg.inv(self.y0)
+        self.z1 = safe_inv(self.y1)
+        self.z2 = safe_inv(self.y2)
+        self.z0 = safe_inv(self.y0)
 
         self.ybus = self.y1
         self.zbus = self.z1
@@ -60,6 +75,8 @@ class ShortCircuitSolver:
 
         # corrente de falta na barra em falta (seq. positiva)
         I_fault = V_pref / (Z_th + z_fault_pu)
+        A = self._symm_matrix_A()
+        Iabc_fault = tuple((A @ np.array([0+0j, I_fault, 0+0j], dtype=complex)).tolist())
 
         # resultado por barra
         results: Dict[str, FaultResultBasic] = {}
@@ -70,11 +87,15 @@ class ShortCircuitSolver:
 
             # por enquanto, corrente não nula só na barra em falta
             I_bus = I_fault if bus_id == fault_bus_id else 0+0j
+            Vabc = tuple((A @ np.array([0+0j, V_post, 0+0j], dtype=complex)).tolist())
+            Iabc = Iabc_fault if bus_id == fault_bus_id else (0+0j, 0+0j, 0+0j)
 
             results[bus_id] = FaultResultBasic(
                 bus_id=bus_id,
                 v_pu=V_post,
                 i_pu=I_bus,
+                v_abc=Vabc,
+                i_abc=Iabc,
             )
 
         return FaultStudyResult(
@@ -82,263 +103,365 @@ class ShortCircuitSolver:
             fault_current_pu=I_fault,
             buses=results,
         )
+    
+
+    # Componentes simétricas
+
+    @staticmethod
+    def _symm_matrix_A() -> np.ndarray:
+        """Matriz A tal que [Va,Vb,Vc]^T = A [V0,V1,V2]^T e [Ia,Ib,Ic]^T = A [I0,I1,I2]^T."""
+        a = np.exp(1j * 2 * np.pi / 3)
+        return np.array(
+            [
+                [1, 1, 1],
+                [1, a**2, a],
+                [1, a, a**2],
+            ],
+            dtype=complex,
+        )
+
+    @staticmethod
+    def _phase_to_index(phase: str) -> int:
+        phase = phase.upper().strip()
+        if phase == "A":
+            return 0
+        if phase == "B":
+            return 1
+        if phase == "C":
+            return 2
+        raise ValueError(f"Fase inválida: {phase!r}. Use 'A', 'B' ou 'C'.")
+
+    @staticmethod
+    def _parse_fault_phases(spec: FaultSpec) -> tuple[int, int | None, int]:
+        """
+        Retorna (p, q, r):
+        - p = fase principal (A/B/C) (sempre existe)
+        - q = segunda fase (LL/DLG) ou None (SLG)
+        - r = fase restante (a que NÃO participa em LL/DLG) ou uma das não-faltosas em SLG
+        """
+        ft = spec.fault_type
+
+        if ft == FaultType.SINGLE_LINE_TO_GROUND:
+            p = ShortCircuitSolver._phase_to_index(spec.phase)
+            others = [0, 1, 2]
+            others.remove(p)
+            r = others[0]
+            return p, None, r
+
+        if ft == FaultType.LINE_TO_LINE:
+            ph = spec.phase.upper().strip()
+            if ph not in ("AB", "BC", "CA"):
+                raise ValueError(f"Fases inválidas para LL: {spec.phase!r}. Use 'AB', 'BC' ou 'CA'.")
+            p = ShortCircuitSolver._phase_to_index(ph[0])
+            q = ShortCircuitSolver._phase_to_index(ph[1])
+            r = ({0, 1, 2} - {p, q}).pop()
+            return p, q, r
+
+        if ft == FaultType.DOUBLE_LINE_TO_GROUND:
+            ph = spec.phase.upper().strip()
+            if ph not in ("ABG", "BCG", "CAG"):
+                raise ValueError(f"Fases inválidas para DLG: {spec.phase!r}. Use 'ABG', 'BCG' ou 'CAG'.")
+            p = ShortCircuitSolver._phase_to_index(ph[0])
+            q = ShortCircuitSolver._phase_to_index(ph[1])
+            r = ({0, 1, 2} - {p, q}).pop()
+            return p, q, r
+
+        raise ValueError(f"Tipo de falta não suportado aqui: {ft}")
+
+    def _solve_sequence_currents_at_fault_bus(self, spec: FaultSpec) -> tuple[complex, complex, complex]:
+        """
+        Resolve I0, I1, I2 na barra da falta (Thevenin por sequência) impondo
+        condições de contorno em abc. Isso permite escolher A/B/C (ou AB/BC/CA, ABG/BCG/CAG)
+        sem "gambiarras" e corrige LL sólida.
+
+        Retorna: (I0, I1, I2)
+        """
+        fault_bus_id = spec.bus_id
+        k = self.bus_index[fault_bus_id]
+
+        Zf = spec.z_fault_pu
+        V1_pref = self.pre_v[fault_bus_id]
+
+        Z0kk = self.z0[k, k]
+        Z1kk = self.z1[k, k]
+        Z2kk = self.z2[k, k]
+
+        A = self._symm_matrix_A()
+
+        # Iabc = A @ [I0,I1,I2]
+        Irow = A
+
+        # V012 = [ -Z0 I0, V1_pref - Z1 I1, -Z2 I2 ] = c + D x
+        D = np.diag([-Z0kk, -Z1kk, -Z2kk]).astype(complex)
+        c = np.array([0 + 0j, V1_pref, 0 + 0j], dtype=complex)
+
+        # Vabc = A @ (c + D x) = Vconst + Vrow x
+        Vconst = A @ c
+        Vrow = A @ D
+
+        ft = spec.fault_type
+        p, q, r = self._parse_fault_phases(spec)
+
+        rows = []
+        rhs = []
+
+        if ft == FaultType.SINGLE_LINE_TO_GROUND:
+            others = [0, 1, 2]
+            others.remove(p)
+
+            rows.append(Irow[others[0]])
+            rhs.append(0 + 0j)
+
+            rows.append(Irow[others[1]])
+            rhs.append(0 + 0j)
+
+            rows.append(Vrow[p] - Zf * Irow[p])
+            rhs.append(-(Vconst[p]))
+
+        elif ft == FaultType.LINE_TO_LINE:
+            assert q is not None
+            rows.append(Irow[r])
+            rhs.append(0 + 0j)
+
+            rows.append(Irow[p] + Irow[q])
+            rhs.append(0 + 0j)
+
+            rows.append((Vrow[p] - Vrow[q]) - Zf * Irow[p])
+            rhs.append(-(Vconst[p] - Vconst[q]))
+
+        elif ft == FaultType.DOUBLE_LINE_TO_GROUND:
+            assert q is not None
+            rows.append(Irow[r])
+            rhs.append(0 + 0j)
+
+            sum_I = Irow[p] + Irow[q]
+            rows.append(Vrow[p] - Zf * sum_I)
+            rhs.append(-(Vconst[p]))
+
+            rows.append(Vrow[q] - Zf * sum_I)
+            rhs.append(-(Vconst[q]))
+
+        else:
+            raise ValueError(f"Tipo de falta não suportado: {ft}")
+
+        M = np.vstack(rows).astype(complex)
+        b = np.array(rhs, dtype=complex)
+
+        I0, I1, I2 = np.linalg.solve(M, b)
+        return I0, I1, I2
+
 
     def single_line_to_ground_fault(self, spec: FaultSpec) -> FaultStudyResult:
         """
-        Falta monofásica fase-terra (SLG) em uma barra, assumindo pré-falta equilibrado.
+        Falta monofásica fase–terra (SLG) em uma barra.
 
-        Por enquanto:
-        - falta na fase A
-        - redes 0, 1, 2 fornecidas via z0, z1, z2 (aqui estão iguais se não tiver dados separados)
+        Suporta escolha de fase (A/B/C) via spec.phase e retorna Va,Vb,Vc e Ia,Ib,Ic.
         """
         if spec.fault_type != FaultType.SINGLE_LINE_TO_GROUND:
             raise ValueError("single_line_to_ground_fault só aceita FaultType.SINGLE_LINE_TO_GROUND")
 
         fault_bus_id = spec.bus_id
         k = self.bus_index[fault_bus_id]
-        Zf = spec.z_fault_pu
 
-        # tensão pré-falta de sequência positiva na barra de falta
-        V1_pref = self.pre_v[fault_bus_id]
+        I0, I1, I2 = self._solve_sequence_currents_at_fault_bus(spec)
+        A = self._symm_matrix_A()
 
-        # impedâncias de Thevenin na barra k para cada sequência
-        Z1kk = self.z1[k, k]
-        Z2kk = self.z2[k, k]
-        Z0kk = self.z0[k, k]
-
-        # correntes de sequência na barra de falta
-        I1 = V1_pref / (Z1kk + Z2kk + Z0kk + 3 * Zf)
-        I2 = I1
-        I0 = I1
-
-        # tensões de sequência pós-falta em todas as barras
+        V0_post: Dict[str, complex] = {}
         V1_post: Dict[str, complex] = {}
         V2_post: Dict[str, complex] = {}
-        V0_post: Dict[str, complex] = {}
 
         for bus_id, i in self.bus_index.items():
+            Z0ik = self.z0[i, k]
             Z1ik = self.z1[i, k]
             Z2ik = self.z2[i, k]
-            Z0ik = self.z0[i, k]
 
+            V0_post[bus_id] = -Z0ik * I0
             V1_post[bus_id] = self.pre_v[bus_id] - Z1ik * I1
-            V2_post[bus_id] = - Z2ik * I2
-            V0_post[bus_id] = - Z0ik * I0
+            V2_post[bus_id] = -Z2ik * I2
 
-        # Transformação de componentes simétricas para fases
-        # a = e^(j*120°)
-        a = np.exp(1j * 2 * np.pi / 3)
+        Iabc_fault = tuple((A @ np.array([I0, I1, I2], dtype=complex)).tolist())
+        p = self._phase_to_index(spec.phase)
 
         results: Dict[str, FaultResultBasic] = {}
         for bus_id in self.bus_index.keys():
-            V0 = V0_post[bus_id]
-            V1 = V1_post[bus_id]
-            V2 = V2_post[bus_id]
-
-            # tensão de fase A
-            Va = V0 + V1 + V2
-
-            # corrente: por enquanto só fase A na barra de falta
-            if bus_id == fault_bus_id:
-                I_phase_a = 3 * I1  # Ia = 3*I1 em falta SLG na fase A
-            else:
-                I_phase_a = 0 + 0j
+            Vabc = tuple((A @ np.array([V0_post[bus_id], V1_post[bus_id], V2_post[bus_id]], dtype=complex)).tolist())
+            Iabc = Iabc_fault if bus_id == fault_bus_id else (0 + 0j, 0 + 0j, 0 + 0j)
 
             results[bus_id] = FaultResultBasic(
                 bus_id=bus_id,
-                v_pu=Va,         # interpretando como tensão de fase A
-                i_pu=I_phase_a,  # corrente de fase A
+                v_pu=Vabc[p],
+                i_pu=Iabc[p],
+                v_abc=Vabc,
+                i_abc=Iabc,
             )
 
-        # corrente de falta que vamos expor: Ia na barra de falta
-        I_fault_phase_a = 3 * I1
-
-        return FaultStudyResult(
-            spec=spec,
-            fault_current_pu=I_fault_phase_a,
-            buses=results,
-        )
+        return FaultStudyResult(spec=spec, fault_current_pu=results[fault_bus_id].i_pu, buses=results)
 
     def line_to_line_fault(self, spec: FaultSpec) -> FaultStudyResult:
         """
-        Falta fase–fase (LL), por exemplo entre fases B–C, em uma barra.
+        Falta fase–fase (LL) em uma barra.
 
-        Assumindo:
-        - pré-falta equilibrado (só seq. positiva)
-        - Z2 = Z1 (sequência negativa igual à positiva)
-        - rede de sequência zero não participa da LL
+        Suporta escolha AB/BC/CA via spec.phase e retorna Va,Vb,Vc e Ia,Ib,Ic.
         """
-     
         if spec.fault_type != FaultType.LINE_TO_LINE:
             raise ValueError("line_to_line_fault só aceita FaultType.LINE_TO_LINE")
 
         fault_bus_id = spec.bus_id
         k = self.bus_index[fault_bus_id]
-        Zf = spec.z_fault_pu
 
-        V1_pref = self.pre_v[fault_bus_id]
-        Z1kk = self.z1[k, k]
-        Z2kk = self.z2[k, k]
+        I0, I1, I2 = self._solve_sequence_currents_at_fault_bus(spec)
+        A = self._symm_matrix_A()
 
-        # Para falta LL (entre, por exemplo, B–C):
-        # I1 =  V1 /(Z1 + Z2 + Zf)
-        # I2 = -I1   (seq. negativa oposta à positiva)
-        I1 = V1_pref / (Z1kk + Z2kk + Zf)
-        I2 = -I1
-
+        V0_post: Dict[str, complex] = {}
         V1_post: Dict[str, complex] = {}
         V2_post: Dict[str, complex] = {}
 
         for bus_id, i in self.bus_index.items():
+            Z0ik = self.z0[i, k]
             Z1ik = self.z1[i, k]
             Z2ik = self.z2[i, k]
 
+            V0_post[bus_id] = -Z0ik * I0
             V1_post[bus_id] = self.pre_v[bus_id] - Z1ik * I1
-            V2_post[bus_id] = - Z2ik * I2
+            V2_post[bus_id] = -Z2ik * I2
 
-        # componente de sequência zero é zero: V0 = 0
+        Iabc_fault = tuple((A @ np.array([I0, I1, I2], dtype=complex)).tolist())
+        p, _, _ = self._parse_fault_phases(spec)
+
         results: Dict[str, FaultResultBasic] = {}
         for bus_id in self.bus_index.keys():
-            V1 = V1_post[bus_id]
-            V2 = V2_post[bus_id]
-            V0 = 0+0j
-
-            # se a falta for, por ex., entre fases B–C:
-            # Va = V0 + V1 + V2
-            # Vb = V0 + a² V1 + a V2
-            # Vc = V0 + a V1 + a² V2
-            a = np.exp(1j * 2 * np.pi / 3)
-
-            # vamos guardar, por enquanto, a tensão da fase em falta.
-            # por simplicidade, podemos considerar que estamos olhando fase B.
-            Vb = V0 + (a**2) * V1 + a * V2
-
-            if bus_id == fault_bus_id:
-                # corrente na fase em falta (ex.: B)
-                I_phase = (V1 - V2) / Zf if Zf != 0 else 3 * I1  # forma simplificada
-            else:
-                I_phase = 0+0j
+            Vabc = tuple((A @ np.array([V0_post[bus_id], V1_post[bus_id], V2_post[bus_id]], dtype=complex)).tolist())
+            Iabc = Iabc_fault if bus_id == fault_bus_id else (0 + 0j, 0 + 0j, 0 + 0j)
 
             results[bus_id] = FaultResultBasic(
                 bus_id=bus_id,
-                v_pu=Vb,
-                i_pu=I_phase,
+                v_pu=Vabc[p],
+                i_pu=Iabc[p],
+                v_abc=Vabc,
+                i_abc=Iabc,
             )
 
-        I_fault_phase = results[fault_bus_id].i_pu
-
-        return FaultStudyResult(
-            spec=spec,
-            fault_current_pu=I_fault_phase,
-            buses=results,
-        )
+        return FaultStudyResult(spec=spec, fault_current_pu=results[fault_bus_id].i_pu, buses=results)
 
     def double_line_to_ground_fault(self, spec: FaultSpec) -> FaultStudyResult:
         """
-        Falta dupla linha-terra (DLG) nas fases B e C em uma barra.
+        Falta dupla fase–terra (DLG) em uma barra.
 
-        Assumimos condição de pré-falta equilibrada (apenas seq. positiva).
-        Usa as impedâncias de Thevenin Z0, Z1 e Z2 vistas da barra de falta.
+        Suporta escolha ABG/BCG/CAG via spec.phase e retorna Va,Vb,Vc e Ia,Ib,Ic.
         """
         if spec.fault_type != FaultType.DOUBLE_LINE_TO_GROUND:
-            raise ValueError(
-                "double_line_to_ground_fault só aceita FaultType.DOUBLE_LINE_TO_GROUND"
-            )
+            raise ValueError("double_line_to_ground_fault só aceita FaultType.DOUBLE_LINE_TO_GROUND")
 
         fault_bus_id = spec.bus_id
         k = self.bus_index[fault_bus_id]
-        Zf = spec.z_fault_pu
 
-        # Tensão pré-falta de sequência positiva na barra em falta
-        V1_pref = self.pre_v[fault_bus_id]
+        I0, I1, I2 = self._solve_sequence_currents_at_fault_bus(spec)
+        A = self._symm_matrix_A()
 
-        # Impedâncias de Thevenin em cada sequência
-        Z1 = self.z1[k, k]
-        Z2 = self.z2[k, k]
-        Z0 = self.z0[k, k]
-
-        # Fórmulas clássicas para falta DLG: I1, I2, I0 :contentReference[oaicite:0]{index=0}
-        Z0eq = Z0 + 3 * Zf
-        denom = Z2 + Z0eq
-
-        # Z2 || (Z0 + 3Zf)
-        Z_par = (Z2 * Z0eq) / denom
-
-        I1 = V1_pref / (Z1 + Z_par)
-        I2 = (-I1) * (Z0eq / denom)
-        I0 = (-I1) * (Z2 / denom)
-
-        # Tensões de sequência pós-falta em todas as barras
-        V0_post: dict[str, complex] = {}
-        V1_post: dict[str, complex] = {}
-        V2_post: dict[str, complex] = {}
+        V0_post: Dict[str, complex] = {}
+        V1_post: Dict[str, complex] = {}
+        V2_post: Dict[str, complex] = {}
 
         for bus_id, i in self.bus_index.items():
+            Z0ik = self.z0[i, k]
             Z1ik = self.z1[i, k]
             Z2ik = self.z2[i, k]
-            Z0ik = self.z0[i, k]
 
+            V0_post[bus_id] = -Z0ik * I0
             V1_post[bus_id] = self.pre_v[bus_id] - Z1ik * I1
             V2_post[bus_id] = -Z2ik * I2
-            V0_post[bus_id] = -Z0ik * I0
 
-        # Transformação para fase: vamos mostrar a fase B (uma das fases em falta)
-        a = np.exp(1j * 2 * np.pi / 3)
+        Iabc_fault = tuple((A @ np.array([I0, I1, I2], dtype=complex)).tolist())
+        p, _, _ = self._parse_fault_phases(spec)
 
-        results: dict[str, FaultResultBasic] = {}
+        results: Dict[str, FaultResultBasic] = {}
         for bus_id in self.bus_index.keys():
-            V0 = V0_post[bus_id]
-            V1b = V1_post[bus_id]
-            V2b = V2_post[bus_id]
-
-            # Tensão de fase B: Vb = V0 + a² V1 + a V2
-            Vb = V0 + (a**2) * V1b + a * V2b
-
-            # Corrente: só consideramos a corrente da fase B na barra em falta
-            if bus_id == fault_bus_id:
-                Ib = I0 + (a**2) * I1 + a * I2
-            else:
-                Ib = 0.0 + 0.0j
+            Vabc = tuple((A @ np.array([V0_post[bus_id], V1_post[bus_id], V2_post[bus_id]], dtype=complex)).tolist())
+            Iabc = Iabc_fault if bus_id == fault_bus_id else (0 + 0j, 0 + 0j, 0 + 0j)
 
             results[bus_id] = FaultResultBasic(
                 bus_id=bus_id,
-                v_pu=Vb,   # tensão da fase B (uma das fases em falta)
-                i_pu=Ib,   # corrente da fase B
+                v_pu=Vabc[p],
+                i_pu=Iabc[p],
+                v_abc=Vabc,
+                i_abc=Iabc,
             )
 
-        I_fault = results[fault_bus_id].i_pu
+        return FaultStudyResult(spec=spec, fault_current_pu=results[fault_bus_id].i_pu, buses=results)
 
-        return FaultStudyResult(
-            spec=spec,
-            fault_current_pu=I_fault,
-            buses=results,
-        )
 
-def _build_solver_from_powerflow(pf: PowerFlow) -> ShortCircuitSolver:
-    """
-    Monta o ShortCircuitSolver usando as três matrizes de sequência
-    calculadas no fluxo de potência.
-    Pressupõe que pf.solve() já foi chamado.
-    """
+
+def _build_solver_from_powerflow(
+    pf: PowerFlow,
+    source_bus_id: str | None = None,
+    z1_source_pu: complex | None = None,
+    z2_source_pu: complex | None = None,
+    z0_source_pu: complex | None = None,
+    generators=None,  # <- NOVO: lista de Generator
+) -> ShortCircuitSolver:
     y1, y2, y0 = pf.get_ybus_numpy_sequences()
     pre_v = pf.get_bus_voltages_complex_pu()
     bus_index = pf.get_bus_index_dict()
 
-    solver = ShortCircuitSolver(
-        ybus=y1,                    # sequência positiva
+    # Fonte Thevenin (se você ainda estiver usando)
+    if source_bus_id is not None:
+        k = bus_index[source_bus_id]
+
+        def add_shunt(Y: np.ndarray, z: complex | None) -> None:
+            if z is None:
+                return
+            if abs(z) < 1e-12:
+                raise ValueError("Impedância da fonte muito pequena (próxima de 0).")
+            Y[k, k] += 1 / z
+
+        add_shunt(y1, z1_source_pu)
+        add_shunt(y2, z2_source_pu)
+        add_shunt(y0, z0_source_pu)
+
+    # NOVO: contribuição dos geradores como shunt (sem importar controller)
+    if generators:
+        for gen in generators:
+            if gen.bus_id not in bus_index:
+                continue
+            k = bus_index[gen.bus_id]
+
+            Z1 = 1j * gen.sc.x1_pu
+            Z2 = 1j * gen.sc.x2_pu
+
+            if gen.sc.grounded:
+                Z0 = 1j * (gen.sc.x0_pu + 3.0 * gen.sc.xn_pu)
+            else:
+                Z0 = None
+
+            def add_shunt_Z(Y, Z):
+                if Z is None:
+                    return
+                if abs(Z) < 1e-12:
+                    return
+                Y[k, k] += 1 / Z
+
+            add_shunt_Z(y1, Z1)
+            add_shunt_Z(y2, Z2)
+            add_shunt_Z(y0, Z0)
+
+    return ShortCircuitSolver(
+        ybus=y1,
         pre_fault_voltages=pre_v,
         bus_index=bus_index,
-        ybus_negative=y2,           # sequência negativa
-        ybus_zero=y0,               # sequência zero
+        ybus_negative=y2,
+        ybus_zero=y0,
     )
-    return solver
-
 
 def run_three_phase_fault_from_powerflow(
     pf: PowerFlow,
     bus_id: str,
     z_fault_pu: complex = 0+0j,
     description: str | None = None,
+    source_bus_id: str | None = None,
+    z1_source_pu: complex | None = None,
+    z2_source_pu: complex | None = None,
+    z0_source_pu: complex | None = None,
+    generators=None,
 ) -> FaultStudyResult:
     """
         Executa um estudo de falta trifásica (3φ) em qualquer sistema
@@ -347,15 +470,22 @@ def run_three_phase_fault_from_powerflow(
     if description is None:
         description = f"Falta 3φ na barra {bus_id}"
 
-    solver = _build_solver_from_powerflow(pf)
+    solver = _build_solver_from_powerflow(
+        pf,
+        source_bus_id=source_bus_id,
+        z1_source_pu=z1_source_pu,
+        z2_source_pu=z2_source_pu,
+        z0_source_pu=z0_source_pu,
+        generators=generators,
+    )
 
     spec = FaultSpec(
         bus_id=bus_id,
         fault_type=FaultType.THREE_PHASE,
         z_fault_pu=z_fault_pu,
         description=description,
+        phase="A",
     )
-
     return solver.three_phase_fault(spec)
 
 
@@ -363,46 +493,67 @@ def run_slg_fault_from_powerflow(
     pf: PowerFlow,
     bus_id: str,
     z_fault_pu: complex = 0 + 0j,
+    phase: str = "A",
     description: str | None = None,
+    source_bus_id: str | None = None,
+    z1_source_pu: complex | None = None,
+    z2_source_pu: complex | None = None,
+    z0_source_pu: complex | None = None,
+    generators=None,
 ) -> FaultStudyResult:
-    """
-    Falta monofásica fase–terra (SLG) usando as três redes de sequência.
-    """
     if description is None:
         description = f"Falta SLG sólida na barra {bus_id}"
 
-    solver = _build_solver_from_powerflow(pf)
+    solver = _build_solver_from_powerflow(
+        pf,
+        source_bus_id=source_bus_id,
+        z1_source_pu=z1_source_pu,
+        z2_source_pu=z2_source_pu,
+        z0_source_pu=z0_source_pu,
+        generators=generators,
+    )
 
     spec = FaultSpec(
         bus_id=bus_id,
         fault_type=FaultType.SINGLE_LINE_TO_GROUND,
         z_fault_pu=z_fault_pu,
         description=description,
+        phase=phase,
     )
 
     return solver.single_line_to_ground_fault(spec)
-
 
 
 def run_ll_fault_from_powerflow(
     pf: PowerFlow,
     bus_id: str,
     z_fault_pu: complex = 0 + 0j,
+    phase: str = "BC",
     description: str | None = None,
+    source_bus_id: str | None = None,
+    z1_source_pu: complex | None = None,
+    z2_source_pu: complex | None = None,
+    z0_source_pu: complex | None = None,
+    generators=None,
 ) -> FaultStudyResult:
-    """
-    Falta fase–fase (LL) usando as redes de sequência positiva e negativa.
-    """
     if description is None:
         description = f"Falta LL sólida na barra {bus_id}"
 
-    solver = _build_solver_from_powerflow(pf)
+    solver = _build_solver_from_powerflow(
+        pf,
+        source_bus_id=source_bus_id,
+        z1_source_pu=z1_source_pu,
+        z2_source_pu=z2_source_pu,
+        z0_source_pu=z0_source_pu,
+        generators=generators,
+    )
 
     spec = FaultSpec(
         bus_id=bus_id,
         fault_type=FaultType.LINE_TO_LINE,
         z_fault_pu=z_fault_pu,
         description=description,
+        phase=phase,
     )
 
     return solver.line_to_line_fault(spec)
@@ -412,24 +563,36 @@ def run_dlg_fault_from_powerflow(
     pf: PowerFlow,
     bus_id: str,
     z_fault_pu: complex = 0 + 0j,
+    phase: str = "BCG",
     description: str | None = None,
+    source_bus_id: str | None = None,
+    z1_source_pu: complex | None = None,
+    z2_source_pu: complex | None = None,
+    z0_source_pu: complex | None = None,
+    generators=None,
 ) -> FaultStudyResult:
-    """
-    Falta dupla fase–terra (DLG) usando as três redes de sequência.
-    """
     if description is None:
         description = f"Falta DLG sólida na barra {bus_id}"
 
-    solver = _build_solver_from_powerflow(pf)
+    solver = _build_solver_from_powerflow(
+        pf,
+        source_bus_id=source_bus_id,
+        z1_source_pu=z1_source_pu,
+        z2_source_pu=z2_source_pu,
+        z0_source_pu=z0_source_pu,
+        generators=generators,
+    )
 
     spec = FaultSpec(
         bus_id=bus_id,
         fault_type=FaultType.DOUBLE_LINE_TO_GROUND,
         z_fault_pu=z_fault_pu,
         description=description,
+        phase=phase,
     )
 
     return solver.double_line_to_ground_fault(spec)
+
 
 
 

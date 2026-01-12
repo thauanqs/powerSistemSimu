@@ -13,7 +13,12 @@ from controllers.simulator_controller import SimulatorController
 from view.board_view import BoardView
 from view.bus_table import BusTable
 
+from PySide6.QtWidgets import QMessageBox, QInputDialog
+from models.transformer import Transformer
+from view.transformer_dialog import TransformerDialog
 
+from models.bus import Bus, BusType
+from view.generator_dialog import GeneratorDialog
 from view.line_table import LineTable
 from view.text_field import TextField
 from PySide6.QtWidgets import QFileDialog
@@ -95,7 +100,19 @@ class MainWindow(QMainWindow):
         addBusButton.setFixedSize(70, 30)
         addBusButton.setIconSize(QSize(70, 30))
 
-        show_y_bar_matrix_button = QPushButton("Print Network") #importante
+        addTrafoButton = QPushButton("Add Trafo")
+        addTrafoButton.setShortcut(QKeySequence("Ctrl+T"))
+        addTrafoButton.setToolTip("Add a transformer between two buses. Shortcut: Ctrl+T")
+        addTrafoButton.setFixedSize(90, 30)
+
+        addGenButton = QPushButton("Add Gen")
+        addGenButton.setShortcut(QKeySequence("Ctrl+G"))
+        addGenButton.setToolTip("Add/configure a generator at a bus. Shortcut: Ctrl+G")
+        addGenButton.setFixedSize(80, 30)
+        addGenButton.clicked.connect(self.add_generator)
+        bottom_row.addWidget(addGenButton)
+
+        show_y_bar_matrix_button = QPushButton("Print Network")
         show_y_bar_matrix_button.setFixedSize(110, 30)
 
         self.powerBaseField = TextField[int](
@@ -116,9 +133,27 @@ class MainWindow(QMainWindow):
 
         simulatorInstance = SimulatorController.instance()
 
+        def _create_default_bus() -> Bus:
+            return Bus(
+                id="",        
+                name="",
+                type=BusType.PQ,
+                v=1.0,
+                o=0.0,
+                p_load=0.0,
+                q_load=0.0,
+                p_gen=0.0,
+                q_gen=0.0,
+                g_shunt=0.0,
+                b_shunt=0.0,
+                q_min=-9999.0,
+                q_max=9999.0,
+            )
+
         # Connect button signal to the board's addSquare method.
-        addBusButton.clicked.connect(lambda: simulatorInstance.addBus())
-        show_y_bar_matrix_button.clicked.connect(self.show_network_data_window)  #importante
+        addBusButton.clicked.connect(lambda: simulatorInstance.addBus(Bus(type=BusType.PQ)))
+        addTrafoButton.clicked.connect(self.add_transformer)
+        show_y_bar_matrix_button.clicked.connect(self.print_network)
 
         # Add widgets to the layout.
         top_row.addWidget(self.powerBaseField)
@@ -126,7 +161,10 @@ class MainWindow(QMainWindow):
         # Create a horizontal layout to place the board view on the left and a new widget on the right.
 
         bottom_row.addWidget(addBusButton)
+        bottom_row.addWidget(addTrafoButton)
+        bottom_row.addWidget(addGenButton)
         bottom_row.addWidget(show_y_bar_matrix_button)
+
 
         self.setCentralWidget(centralWidget)
 
@@ -216,18 +254,61 @@ class MainWindow(QMainWindow):
     def import_project_from_ieee(self):
         self.board.import_ieee()
 
-    def export_pdf(self):
-        filename, _ = QFileDialog.getSaveFileName(
-            self,
-            "Exportar Relatório PDF",
-            "relatorio_fluxo_potencia.pdf",
-            "PDF Files (*.pdf)"
-        )
+    def add_transformer(self):
+        ctrl = SimulatorController.instance()
+        buses = ctrl.buses
 
-        if not filename:
+        if len(buses) < 2:
+            QMessageBox.warning(self, "Transformador", "Crie pelo menos 2 barras antes.")
             return
 
-        if not filename.lower().endswith(".pdf"):
-            filename += ".pdf"
+        # Labels amigáveis e mapa label -> id
+        labels = [f"{b.number} - {b.name} ({b.type.name})" for b in buses]
+        label_to_id = {labels[i]: buses[i].id for i in range(len(buses))}
 
-        SimulatorController.instance().export_pdf_report(filename)
+        src_label, ok = QInputDialog.getItem(
+            self, "Adicionar Transformador", "Escolha a barra HV (de):", labels, 0, False
+        )
+        if not ok:
+            return
+        src_id = label_to_id[src_label]
+
+        dst_labels = [lb for lb in labels if label_to_id[lb] != src_id]
+        dst_label, ok = QInputDialog.getItem(
+            self, "Adicionar Transformador", "Escolha a barra LV (para):", dst_labels, 0, False
+        )
+        if not ok:
+            return
+        dst_id = label_to_id[dst_label]
+
+        # Cria trafo com valores default (você edita no popup)
+        trafo = Transformer.from_z(
+            tap_bus_id=src_id,
+            z_bus_id=dst_id,
+            z=complex(0.0, 0.1),   # X=0.1 pu (didático)
+            tap=1.0,
+            name=f"TR {src_id}-{dst_id}",
+        )
+
+        ctrl.addConnection(trafo)
+
+        # Abre popup de propriedades pra você já configurar ligação/aterramento/bases
+        TransformerDialog(trafo).exec()
+
+    def add_generator(self):
+        ctrl = SimulatorController.instance()
+        buses = ctrl.buses
+        if len(buses) < 1:
+            return
+
+        labels = [f"{b.number} - {b.name} ({b.type.name})" for b in buses]
+        label_to_bus = {labels[i]: buses[i] for i in range(len(buses))}
+
+        chosen, ok = QInputDialog.getItem(
+            self, "Adicionar Gerador", "Escolha a barra:", labels, 0, False
+        )
+        if not ok:
+            return
+
+        bus = label_to_bus[chosen]
+        GeneratorDialog(bus).exec()

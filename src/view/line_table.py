@@ -8,11 +8,13 @@ from controllers.simulator_controller import ElementEvent, SimulatorController
 from models.line import Line
 from models.network_element import NetworkElement
 from view.line_table_row import LineTableRow
-
+from models.line import Line
+from models.transformer import Transformer
 
 class LineTable(QWidget):
     def __init__(self):
         super().__init__()
+        self.rows: list[LineTableRow] = []
         self.simulatorInstance = SimulatorController.instance()
         self.simulatorInstance.listen(self.circuitListener)
         layout = QVBoxLayout(self)
@@ -37,29 +39,48 @@ class LineTable(QWidget):
         layout.addWidget(self.table)
 
         self.items: list[str] = []
-        for line in self.simulatorInstance.connections:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            line_row = LineTableRow(line)
-            widgets = line_row.get_widgets()
-            for col, widget in enumerate(widgets):
-                self.table.setCellWidget(row, col, widget)
-            self.items.append(line.id)
+
+        for conn in self.simulatorInstance.connections:
+            if type(conn) is not Line:
+                continue
+
+            row = LineTableRow(conn)
+            self.rows.append(row)
+
+            i = self.table.rowCount()
+            self.table.insertRow(i)
+
+            for col, w in enumerate(row.get_widgets()):
+                self.table.setCellWidget(i, col, w)
+
+            self.items.append(conn.id)  # <-- ERA line.id
+
 
     def circuitListener(self, element: NetworkElement, event: ElementEvent):
-        if event is ElementEvent.CREATED and isinstance(element, Line):
+        if event is ElementEvent.CREATED and type(element) is Line:
             row = self.table.rowCount()
             self.table.insertRow(row)
-            bus_row = LineTableRow(element)
-            widgets = bus_row.get_widgets()
+            new_row = LineTableRow(element)
+            self.rows.append(new_row)
+            widgets = new_row.get_widgets()
             for col, widget in enumerate(widgets):
                 self.table.setCellWidget(row, col, widget)
             self.items.append(element.id)
             return
 
-        if event is ElementEvent.DELETED and isinstance(element, Line):
-            for i, bus_id in enumerate(self.items):
-                if bus_id == element.id:
+        if event is ElementEvent.CREATED and type(element) is Line:
+            for i, line_id in enumerate(self.items):
+                if line_id == element.id:
                     self.table.removeRow(i)
                     self.items.pop(i)
+                    self.rows.pop(i)  # <-- add
                     break
+
+    def select_line(self, line_id: str) -> None:
+        try:
+            row = self.items.index(line_id)
+        except ValueError:
+            return
+        self.table.setCurrentCell(row, 0)
+        self.table.selectRow(row)
+

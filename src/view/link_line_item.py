@@ -1,10 +1,15 @@
 from typing import *
 from PySide6.QtWidgets import (
-    QGraphicsLineItem,
+    QGraphicsLineItem, QGraphicsItem
 )
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QGraphicsSimpleTextItem
+from PySide6.QtWidgets import QGraphicsSimpleTextItem, QApplication
 from PySide6.QtGui import QPen
+
+from PySide6.QtGui import QPainter
+from PySide6.QtWidgets import QDialog
+from models.transformer import Transformer
+from view.transformer_dialog import TransformerDialog
 
 from controllers.simulator_controller import ElementEvent, SimulatorController
 from models.line import Line
@@ -24,6 +29,10 @@ class LinkLineItem(QGraphicsLineItem):
         self.setPen(QPen(Qt.blue, 1))
         self.setZValue(0)
         self.__line: Line = line
+        self.line_model = line   
+        self.element = line       
+
+
         self.nameLabel = None
         self.center = None
 
@@ -44,6 +53,18 @@ class LinkLineItem(QGraphicsLineItem):
         self.updatePosition()
         super().paint(painter, option, widget)
 
+        # Se for transformador: desenha duas "bobinas" no meio
+        if isinstance(self.__line, Transformer):
+            ln = QGraphicsLineItem.line(self)
+            mx = (ln.x1() + ln.x2()) / 2.0
+            my = (ln.y1() + ln.y2()) / 2.0
+
+            r = 6  # raio visual
+            # duas elipses lado a lado
+            painter.drawEllipse(mx - 2*r, my - r, 2*r, 2*r)
+            painter.drawEllipse(mx,       my - r, 2*r, 2*r)
+
+
     def circuitListener(self, element: NetworkElement, event: ElementEvent):
         if (
             event == ElementEvent.UPDATED
@@ -51,7 +72,27 @@ class LinkLineItem(QGraphicsLineItem):
             and isinstance(element, Line)
         ):
             self.__line = element
+            self.line_model = element
+            self.element = element
             self.nameLabel.setText(self.__label)
+
+    def mouseDoubleClickEvent(self, event):
+        if isinstance(self.__line, Transformer):
+            dlg = TransformerDialog(self.__line)
+            dlg.exec()
+            event.accept()
+            return
+
+        # Linha normal: abre a LineTable pela view dona da scene (sem imports)
+        views = self.scene().views() if self.scene() is not None else []
+        if views:
+            view0 = views[0]
+            if hasattr(view0, "open_line_table"):
+                view0.open_line_table(select_line_id=self.__line.id)  # aqui passa o id
+                event.accept()
+                return
+
+        event.accept()
 
     @property
     def __label(self) -> str:
@@ -60,4 +101,7 @@ class LinkLineItem(QGraphicsLineItem):
             label += f" \nbc=j{self.__line.bc:.2f}"
         if self.__line.tap != 1:
             label += f" \ntap={self.__line.tap:.2f}:1"
+        if isinstance(self.__line, Transformer):
+            label = "TR\n" + label
+            label += f"\n{self.__line.meta.conn_hv}-{self.__line.meta.conn_lv}"
         return label

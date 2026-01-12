@@ -1,3 +1,4 @@
+from __future__ import annotations
 from models.bus_square_matrix import BusSquareMatrix
 
 
@@ -18,51 +19,53 @@ class YBusSquareMatrix:
         return self.__bc[index] if index in self.__bc else 0.0
 
     # Caso 1 - Adicionar um barramento e conecta a terra. Aumenta a ordem da matriz.
-    def add_bus(self, y: complex) -> int:
-        new_bus = self.__m.size
-        if self.__log_print:
-            print(f"==========================================")
-            print(f"Case 1: adding bus {new_bus+1} to ground, with y = {y}\n")
+    def add_bus(self, bus_id: str) -> None:
+        self.__m.add_bus(bus_id, complex(0, 0))
 
-        # Incrementa a ordem da matriz, zerando a nova linha e coluna.
-        self.__m = self.__m.increase_order(last_value=y)
 
-        if self.__log_print:
-            print(f"Y = \n{self}")
-
-        return new_bus
 
     # Caso 4 - Conectar um barramento a outro barramento. Não aumenta a ordem da matriz.
     def connect_bus_to_bus(
-        self,
-        y: complex,
-        source: int,
-        target: int,
-        bc: float = 0.0,
-        tap: complex = complex(1.0),
-    ) -> None:
-        if self.__log_print:
-            print(f"==========================================")
-            print(
-                f"Case 4: connecting bus {source+1} to bus {target+1}, with y = {y}, tap={tap}:1, bc={bc}\n"
-            )
+    self,
+    y: complex,
+    source: int,
+    target: int,
+    bc: float = 0.0,
+    tap: complex = 1.0,
+    ):
+        """
+        Conecta dois barramentos na Ybus com:
+        - admitância série y (complex)
+        - susceptância de carregamento bc (total da linha, pu)
+        - tap do lado "source" (pode ser real ou complexo: a*exp(j*phi))
 
-        def mapper(r: int, c: int) -> complex:
-            self.__bc[self.__getIndex(source, target)] = bc
-            if r == c and r == source:
-                return self.__m[r][r] + y / tap / tap
-            elif r == c and r == target:
-                return self.__m[r][r] + y
-            elif r == source and c == target:
-                return -y / tap
-            elif r == target and c == source:
-                return -y / tap
-            else:
-                return self.__m[r][c]
+        Modelo padrão MATPOWER:
+        Yff += (y + j*bc/2)/|tap|^2
+        Ytt += (y + j*bc/2)
+        Yft += -y/conj(tap)
+        Ytf += -y/tap
+        """
+         
+        tap = complex(tap)
+        if abs(tap) < 1e-12:
+            tap = 1.0 + 0j
 
-        self.__m = BusSquareMatrix.generator(self.__m.size, builder=mapper)
-        if self.__log_print:
-            print(f"Y = \n{self.__m}")
+        tap_abs2 = tap * tap.conjugate()  # |tap|^2
+
+        # Parte série
+        self.y_matrix[source][source] += y / tap_abs2
+        self.y_matrix[target][target] += y
+        self.y_matrix[source][target] += -y / tap.conjugate()
+        self.y_matrix[target][source] += -y / tap
+
+        # Line charging (shunt)
+        self.y_matrix[source][source] += 1j * (bc / 2.0) / tap_abs2
+        self.y_matrix[target][target] += 1j * (bc / 2.0)
+
+        # Se você usa bc em algum getBc, mantenha a matriz/registro que você já tinha:
+        # (ajuste o nome do atributo conforme o teu arquivo)
+        self.__bc[self.__getIndex(source, target)] = bc
+
 
     def __str__(self) -> str:
         return f"{self.__m}"
