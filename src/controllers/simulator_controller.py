@@ -1,4 +1,5 @@
 from typing import Callable
+import os 
 
 from maths.power_flow import PowerFlow
 from models.bus import Bus, BusType
@@ -242,6 +243,40 @@ class SimulatorController:
         for bus in self.__buses.values():
             for callback in self.__listeners:
                 callback(bus, ElementEvent.UPDATED)
+        from view.voltage_profile_plot import show_voltage_profile
+
+        # =============================
+        # GERAR DADOS DO RELATÓRIO
+        # =============================
+
+        buses = []
+        voltages = []
+
+        for bus in self.__buses.values():
+            buses.append(bus.number)          # número da barra
+            voltages.append(bus.v)      # magnitude da tensão (pu)
+
+        # =============================
+        # GERAR GRÁFICO
+        # =============================
+        image_path = os.path.abspath("perfil_tensao.png")
+        show_voltage_profile(
+            buses=buses,
+            voltages=voltages,
+            save_path=image_path
+        )
+
+        
+    #    bus_data = self.get_bus_report_data()
+
+    #    generate_pdf(
+    #       filename="relatorio_fluxo_potencia.pdf",
+    #       bus_data=bus_data,
+    #       image_path="perfil_tensao.png",
+    #       logo_path="reports/assets/logo.png"
+    #   )
+
+    
 
     def printNetwork(self):
         pf = PowerFlow()
@@ -251,7 +286,10 @@ class SimulatorController:
         for line in self.__connections.values():
             line = line.copyWith()
             pf.add_connection(line)
-        pf.print_data()
+        # Esta linha chama print_data() (que agora deve retornar uma string)
+        # e retorna essa string para quem chamou (a MainWindow)
+        return pf.print_data()
+
 
     def getElementNames(self, ids: list[str]) -> str:
         return " "  # TODO
@@ -305,23 +343,30 @@ class SimulatorController:
         bus_id = self._resolve_bus_id(bus_id)
 
 
-        items = [
-            "Falta trifásica (3φ)",
-            "Falta monofásica fase-terra (SLG)",
-            "Falta fase-fase (LL)",
-            "Falta dupla fase-terra (DLG)",
-        ]
+        buses = []
+        voltages = []
 
-        item, ok = QInputDialog.getItem(
-            None,
-            "Tipo de falta",
-            f"Selecione o tipo de falta na barra {bus_id}:",
-            items,
-            0,
-            False,
+        for bus in self.__buses.values():
+            buses.append(bus.number)
+            voltages.append(bus.v)
+
+        output_dir = os.path.abspath("temp_graficos")
+
+        image_paths = save_voltage_profile_chunks(
+            buses=buses,
+            voltages=voltages,
+            output_dir=output_dir,
+            bars_per_image=20
         )
-        if not ok:
-            return
+
+        # gera PDF
+        bus_data = self.get_bus_report_data()
+        generate_pdf(
+            filename=pdf_path,
+            bus_data=bus_data,
+            image_paths=image_paths,
+            logo_path="reports/assets/logo.png"
+        )
 
         if item.startswith("Falta trifásica"):
             self._run_three_phase_fault_on_bus(bus_id)

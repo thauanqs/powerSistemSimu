@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QKeySequence, QFont
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -21,6 +21,8 @@ from models.bus import Bus, BusType
 from view.generator_dialog import GeneratorDialog
 from view.line_table import LineTable
 from view.text_field import TextField
+from PySide6.QtWidgets import QFileDialog
+import os
 
 
 class MainWindow(QMainWindow):
@@ -52,6 +54,11 @@ class MainWindow(QMainWindow):
         projectSave.triggered.connect(self.save_project_to_json)
         project.addAction(projectSave)
 
+        projectExportPDF = QAction("Export PDF", project)
+        projectExportPDF.setShortcut(QKeySequence("Ctrl+E"))
+        projectExportPDF.triggered.connect(self.export_pdf)
+        project.addAction(projectExportPDF)
+
         projectImportIeee = QAction("Open IEEE ", project)
         projectImportIeee.setShortcut(QKeySequence("Ctrl+I"))
         projectImportIeee.triggered.connect(self.import_project_from_ieee)
@@ -69,6 +76,12 @@ class MainWindow(QMainWindow):
         show = toolbar.addMenu("Show")
         showYMatrix = QAction("Y Matrix", show)
 
+        # 1. Conecte o MENU (showYMatrix) ao seu método
+        showYMatrix.triggered.connect(self.show_y_matrix_window)
+
+       
+
+        
         show.addAction(showYMatrix)
 
         run = toolbar.addMenu("Run")
@@ -187,8 +200,38 @@ class MainWindow(QMainWindow):
         lineWindow.resize(930, 600)
         lineWindow.show()
 
-    def print_network(self):
+    def print_network(self): #importante
         SimulatorController.instance().printNetwork()
+
+    def show_y_matrix_window(self):
+        # Usaremos o mesmo método para ambos, apenas para fins de demonstração
+        self.show_network_data_window()
+
+    def show_network_data_window(self):
+        from PySide6.QtWidgets import QMainWindow, QPlainTextEdit, QWidget, QVBoxLayout
+        
+        # 1. Obter a string de dados do Controller
+        data_string = SimulatorController.instance().printNetwork() 
+        
+        # 2. Configurar a nova janela
+        dataWindow = QMainWindow(parent=self)
+        dataWindow.setWindowTitle("Network Data and Y Matrix")
+        
+        centralWidget = QWidget()
+        layout = QVBoxLayout(centralWidget)
+        
+        # 3. Widget de texto para exibir os dados
+        text_widget = QPlainTextEdit(data_string)
+        text_widget.setReadOnly(True)
+
+        # Define uma fonte monoespaçada (Consolas, Courier New, etc.)
+        text_widget.setFont(QFont("Courier New", 10))
+        
+        layout.addWidget(text_widget)
+        dataWindow.setCentralWidget(centralWidget)
+        
+        dataWindow.resize(800, 600)
+        dataWindow.show()
 
     def on_power_base_changed(self):
         controller = SimulatorController.instance()

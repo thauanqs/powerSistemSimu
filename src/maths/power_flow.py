@@ -587,14 +587,58 @@ class PowerFlow:
 
     def print_data(self):
         y = self.build_bus_matrix()
-        print("Data:")
-        print("\nBuses:")
+        output = ["Data:", "\nBuses:"]
+
+
+        # 1. Cabeçalho das Barras
+        # Usamos larguras parecidas com as do Bus.__str__ para alinhar
+        # ID(4) Type(7) ... P(8) Q(8) ...
+        header_bus = (
+            f"{'ID':^4} {'Type':^7}"            # ID(4) e Type(7)
+            f"{' ':6}{'V (pu)':<6}{' ':3}{'Angle':<9} |"   # Espaço(", v = "), V(6), Espaço(" ∠ "), Angle(9), " |"
+            f"{' ':6}{'P (MW)':>8}{' ':6}{'Q (MVAr)':>8}"   # Espaço(", p = "), P(8), Espaço(", q = "), Q(8)
+            f"{' ':9}{'P_sch':>8}{' ':9}{'Q_sch':>8} |"     # Espaço(", p_sch: "), P_sch(8), Espaço(", q_sch: "), Q_sch(8)
+        )
+
+        output.append(header_bus)
+        output.append("-" * len(header_bus)) # Linha divisória
+
+
+        
+        # ... Adicione informações de Buses e Connections à lista 'output' ...
         for index, bus in enumerate(self.buses.values()):
             bus.index = index
-            print(bus)
-        print("\nConnections:")
+            output.append(str(bus))
+
+
+# --- SEÇÃO DE CONEXÕES (LINES) ---
+        output.append("\nConnections:")
+        
+        # 2. Cabeçalho das Conexões
+        # Baseado no formato: "   1 ->    2, y=..."
+        header_line = (
+            f"{'From':>4} -> {'To':>4}  "
+            f"{'Admittance (Y)':<18} {'B (sh)':<10} {'Tap':<8}"
+        )
+        output.append(header_line)
+        output.append("-" * len(header_line)) # Linha divisória
+
+
+        #output.append("\nConnections:")
         for connection in self.connections.values():
-            print(connection)
-        print("\nY matrix:")
+            output.append(str(connection))
+
+        output.append("\nY matrix:")
+
+
         for row in y.y_matrix:
-            print([f"{complex(x.real, x.imag):.2f}" for x in row])
+            # 1. Crie uma lista de strings, onde cada número
+            #    é formatado para ter 18 caracteres de largura, 
+            #    alinhado à direita.
+            padded_row = [f"{f'{complex(x.real, x.imag):.2f}': >18}" for x in row]
+            
+            # 2. Junte as colunas (agora alinhadas) com um único espaço.
+            output.append(" ".join(padded_row))
+        
+        # Retorne a string formatada em vez de imprimir
+        return "\n".join(output)
