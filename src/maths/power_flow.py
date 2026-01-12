@@ -39,6 +39,13 @@ class PowerFlow:
         self.connections[connection.id] = connection
 
     def build_bus_matrix(self, sequence: str = "positive") -> YBusSquareMatrix:
+        def c0(x):
+            return 0+0j if x is None else complex(x)
+
+        def f0(x):
+            return 0.0 if x is None else float(x)
+
+        
         """
         Monta a Ybus para a sequência indicada:
 
@@ -66,11 +73,9 @@ class PowerFlow:
         for connection in self.connections.values():
 
             # ---------------------------------------------------------
-            # Transformador na sequência zero (didático)
+            # Transformador na sequência zero
             # ---------------------------------------------------------
-            # ---------------------------------------------------------
-            # Transformador na sequência zero (didático)
-            # ---------------------------------------------------------
+
             if sequence == "zero" and isinstance(connection, Transformer):
                 hv_idx = self.buses[connection.tap_bus_id].index
                 lv_idx = self.buses[connection.z_bus_id].index
@@ -92,16 +97,15 @@ class PowerFlow:
                 lv_star_g = (lv_c == "YG") or (lv_c == "Y" and connection.meta.grounded_lv)
 
                 # Usa Z0 diretamente (não 1/y0), porque é o que o dialog edita.
-                z0 = getattr(connection, "z0", 0+0j)
+                z0 = c0(getattr(connection, "z0", None))
 
-                # fallback (caso z0 esteja zerado por algum motivo)
                 if abs(z0) < 1e-12:
-                    y0 = getattr(connection, "y0", 0+0j)
+                    y0 = c0(getattr(connection, "y0", None))
                     if abs(y0) > 1e-12:
                         z0 = 1 / y0
                     else:
-                        # último fallback: muita ferramenta assume Z0≈Z1 quando não fornecido
-                        z0 = getattr(connection, "z1", 0+0j)
+                        z0 = c0(getattr(connection, "z1", None))
+
 
                 def add_zero_shunt(bus_i: int, xn_pu: float):
                     # Zeq = Z0 + 3*Zn, Zn = j*Xn
@@ -119,7 +123,7 @@ class PowerFlow:
                         y=y_series,
                         source=hv_idx,
                         target=lv_idx,
-                        bc=connection.b0,
+                        bc=f0(connection.b0),
                         tap=tap_complex,
                     )
                     continue
@@ -160,15 +164,23 @@ class PowerFlow:
             # ---------------------------------------------------------
             # Linha normal (ou trafo em seq. positiva/negativa)
             # ---------------------------------------------------------
+            y1 = c0(getattr(connection, "y1", None))
+            y2 = c0(getattr(connection, "y2", None)) or y1
+            y0 = c0(getattr(connection, "y0", None)) or y1  # pra demo; se quiser mais “conservador”, usa 0+0j
+
+            b1 = f0(getattr(connection, "b1", 0.0))
+            b0 = f0(getattr(connection, "b0", 0.0))
+
             if sequence == "positive":
-                y_series = connection.y1
-                bc = connection.b1
+                y_series = y1
+                bc = b1
             elif sequence == "negative":
-                y_series = connection.y2
-                bc = connection.b1
+                y_series = y2
+                bc = b1
             elif sequence == "zero":
-                y_series = connection.y0
-                bc = connection.b0
+                y_series = y0
+                bc = b0
+
             else:
                 raise ValueError(f"Sequência inválida: {sequence}")
 
